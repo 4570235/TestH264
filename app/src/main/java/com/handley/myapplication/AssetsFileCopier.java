@@ -11,7 +11,7 @@ import java.io.OutputStream;
 
 public class AssetsFileCopier {
 
-    private static final String TAG = "AssetsFileCopier";
+    private static final String TAG = Utils.TAG + "AssetsFileCopier";
 
     /**
      * 将 Assets 中的文件拷贝到应用外部存储目录
@@ -80,7 +80,9 @@ public class AssetsFileCopier {
      */
     public static boolean isFileExistsInExternalFilesDir(Context context, String fileName) {
         File targetDir = context.getExternalFilesDir(null);
-        if (targetDir == null) return false;
+        if (targetDir == null) {
+            return false;
+        }
 
         File targetFile = new File(targetDir, fileName);
         return targetFile.exists();

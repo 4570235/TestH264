@@ -12,7 +12,7 @@ import java.io.InputStream;
 
 public class Utils {
 
-    private static final String TAG = "H264Play";
+    public static final String TAG = "[Test]";
 
     // 提取SPS和PPS（流式版本）
     public static byte[][] extractSpsPps(File file) throws IOException {
@@ -67,7 +67,7 @@ public class Utils {
                         try {
                             return MediaCodec.createByCodecName(codecInfo.getName());
                         } catch (IOException e) {
-                            Log.e(TAG, "Failed to create software decoder: " + codecInfo.getName(), e);
+                            Log.e(TAG, "findSoftwareDecoder() Failed: " + codecInfo.getName(), e);
                         }
                     }
                 }

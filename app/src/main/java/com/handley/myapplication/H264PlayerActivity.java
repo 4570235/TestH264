@@ -15,6 +15,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.nio.ByteBuffer;
 
+// 演示读取本地 .h264文件 并解码播放
 public class H264PlayerActivity extends AppCompatActivity implements SurfaceHolder.Callback {
 
     private static final String MIME_TYPE = "video/avc";

@@ -1,83 +1,10 @@
 package com.handley.myapplication;
 
 import android.util.Log;
-import java.nio.ByteBuffer;
 
 public class SpsParser {
 
-    private static final String TAG = "SpsParser";
-
-    // 指数哥伦布编码解码器
-    private static class ExpGolombDecoder {
-        private final byte[] data;
-        private int offset; // 字节偏移
-        private int bitOffset; // 位偏移 (0-7)
-        private int currentByte;
-
-        public ExpGolombDecoder(byte[] data) {
-            this.data = data;
-            this.offset = 0;
-            this.bitOffset = 0;
-            if (data.length > 0) {
-                currentByte = data[0] & 0xFF;
-            }
-        }
-
-        // 读取一个无符号指数哥伦布编码值
-        public int readUE() {
-            int leadingZeroBits = 0;
-            while (readBit() == 0) {
-                leadingZeroBits++;
-            }
-
-            if (leadingZeroBits == 0) {
-                return 0;
-            }
-
-            int value = (1 << leadingZeroBits) - 1;
-            value += readBits(leadingZeroBits);
-            return value;
-        }
-
-        // 读取一个有符号指数哥伦布编码值
-        public int readSE() {
-            int value = readUE();
-            if ((value & 0x01) != 0) {
-                return (value + 1) >> 1;
-            } else {
-                return -(value >> 1);
-            }
-        }
-
-        // 读取一个比特
-        private int readBit() {
-            if (offset >= data.length) {
-                return 0; // 超出范围返回0
-            }
-
-            int bit = (currentByte >> (7 - bitOffset)) & 1;
-            bitOffset++;
-
-            if (bitOffset >= 8) {
-                bitOffset = 0;
-                offset++;
-                if (offset < data.length) {
-                    currentByte = data[offset] & 0xFF;
-                }
-            }
-
-            return bit;
-        }
-
-        // 读取多个比特
-        private int readBits(int numBits) {
-            int value = 0;
-            for (int i = 0; i < numBits; i++) {
-                value = (value << 1) | readBit();
-            }
-            return value;
-        }
-    }
+    private static final String TAG = Utils.TAG + "SpsParser";
 
     // 解析SPS并返回宽高
     public static int[] parseSps(byte[] sps) {
@@ -192,6 +119,79 @@ public class SpsParser {
             }
 
             lastScale = (nextScale == 0) ? lastScale : nextScale;
+        }
+    }
+
+    // 指数哥伦布编码解码器
+    private static class ExpGolombDecoder {
+
+        private final byte[] data;
+        private int offset; // 字节偏移
+        private int bitOffset; // 位偏移 (0-7)
+        private int currentByte;
+
+        public ExpGolombDecoder(byte[] data) {
+            this.data = data;
+            this.offset = 0;
+            this.bitOffset = 0;
+            if (data.length > 0) {
+                currentByte = data[0] & 0xFF;
+            }
+        }
+
+        // 读取一个无符号指数哥伦布编码值
+        public int readUE() {
+            int leadingZeroBits = 0;
+            while (readBit() == 0) {
+                leadingZeroBits++;
+            }
+
+            if (leadingZeroBits == 0) {
+                return 0;
+            }
+
+            int value = (1 << leadingZeroBits) - 1;
+            value += readBits(leadingZeroBits);
+            return value;
+        }
+
+        // 读取一个有符号指数哥伦布编码值
+        public int readSE() {
+            int value = readUE();
+            if ((value & 0x01) != 0) {
+                return (value + 1) >> 1;
+            } else {
+                return -(value >> 1);
+            }
+        }
+
+        // 读取一个比特
+        private int readBit() {
+            if (offset >= data.length) {
+                return 0; // 超出范围返回0
+            }
+
+            int bit = (currentByte >> (7 - bitOffset)) & 1;
+            bitOffset++;
+
+            if (bitOffset >= 8) {
+                bitOffset = 0;
+                offset++;
+                if (offset < data.length) {
+                    currentByte = data[offset] & 0xFF;
+                }
+            }
+
+            return bit;
+        }
+
+        // 读取多个比特
+        private int readBits(int numBits) {
+            int value = 0;
+            for (int i = 0; i < numBits; i++) {
+                value = (value << 1) | readBit();
+            }
+            return value;
         }
     }
 }
