@@ -24,6 +24,7 @@ public class H264PlayerActivity extends AppCompatActivity implements SurfaceHold
     private MediaCodec mediaCodec;
     private SurfaceView surfaceView;
     private Thread decoderThread;
+    private File h264File;
     private volatile boolean isRunning = false;
 
     @Override
@@ -32,7 +33,7 @@ public class H264PlayerActivity extends AppCompatActivity implements SurfaceHold
         setContentView(R.layout.activity_main);
         surfaceView = findViewById(R.id.surface_view);
         surfaceView.getHolder().addCallback(this);
-        AssetsFileCopier.copyAssetToExternalFilesDir(this, "test.h264");
+        h264File = AssetsFileCopier.copyAssetToExternalFilesDir(this, "dump.h264");
     }
 
     @Override
@@ -56,7 +57,6 @@ public class H264PlayerActivity extends AppCompatActivity implements SurfaceHold
             mediaCodec = soft ? Utils.findSoftwareDecoder(MIME_TYPE) : MediaCodec.createDecoderByType(MIME_TYPE);
 
             // 2. 从文件中提取SPS和PPS
-            File h264File = new File(getExternalFilesDir(null), "test.h264");
             byte[][] spsPps = Utils.extractSpsPps(h264File);
             byte[] sps = spsPps[0];
             byte[] pps = spsPps[1];
