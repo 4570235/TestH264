@@ -17,38 +17,34 @@ import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.ByteBuffer;
-import java.util.ArrayList;
-import java.util.List;
 
 public class H264PlayerActivity2 extends AppCompatActivity implements SurfaceHolder.Callback {
 
     private static final String TAG = "H264PlayerActivity2";
-
     private static final String MIME_TYPE = "video/avc";
     private static final int FRAME_RATE = 25; // 假设帧率
     private static final long FRAME_INTERVAL_US = 1000000 / FRAME_RATE;
+    private static final int BUFFER_SIZE = 1024 * 1024; // 1MB 缓冲区
 
     private MediaCodec mediaCodec;
     private SurfaceView surfaceView;
     private Thread decoderThread;
     private volatile boolean isRunning = false;
 
-    // 提取SPS和PPS
+    // 提取SPS和PPS（流式版本）
     private static byte[][] extractSpsPps(File file) throws IOException {
         try (InputStream is = new BufferedInputStream(new FileInputStream(file))) {
-            byte[] buffer = new byte[(int) file.length()];
-            int bytesRead = is.read(buffer);
-
-            if (bytesRead <= 0) {
-                throw new IOException("Failed to read file");
-            }
-
-            List<byte[]> nalUnits = splitNalUnits2(buffer, bytesRead);
+            H264StreamReader streamReader = new H264StreamReader(is);
 
             byte[] sps = null;
             byte[] pps = null;
 
-            for (byte[] nal : nalUnits) {
+            while (sps == null || pps == null) {
+                byte[] nal = streamReader.readNextNalUnit();
+                if (nal == null) {
+                    break; // 没有更多数据
+                }
+
                 if (nal.length < 1) {
                     continue;
                 }
@@ -58,10 +54,6 @@ public class H264PlayerActivity2 extends AppCompatActivity implements SurfaceHol
                     sps = nal;
                 } else if (nalType == 8) { // PPS
                     pps = nal;
-                }
-
-                if (sps != null && pps != null) {
-                    break;
                 }
             }
 
@@ -73,52 +65,7 @@ public class H264PlayerActivity2 extends AppCompatActivity implements SurfaceHol
         }
     }
 
-    private static List<byte[]> splitNalUnits2(byte[] data, int length) {
-        List<byte[]> nalUnits = new ArrayList<>();
-        int start = 0;
-
-        for (int i = 0; i < length - 4; i++) {
-            // 检测 4字节起始码 (0x00000001)
-            if (i <= length - 4 && data[i] == 0x00 && data[i + 1] == 0x00 && data[i + 2] == 0x00
-                    && data[i + 3] == 0x01) {
-
-                if (i > start) {
-                    // 提取前一个NAL单元
-                    byte[] nal = new byte[i - start];
-                    System.arraycopy(data, start, nal, 0, i - start);
-                    nalUnits.add(nal);
-                }
-
-                start = i + 4; // 跳过4字节起始码
-                i += 3; // 跳过已检查的字节
-                continue;
-            }
-
-            // 检测 3字节起始码 (0x000001)
-            if (i <= length - 3 && data[i] == 0x00 && data[i + 1] == 0x00 && data[i + 2] == 0x01) {
-
-                if (i > start) {
-                    // 提取前一个NAL单元
-                    byte[] nal = new byte[i - start];
-                    System.arraycopy(data, start, nal, 0, i - start);
-                    nalUnits.add(nal);
-                }
-
-                start = i + 3; // 跳过3字节起始码
-                i += 2; // 跳过已检查的字节
-            }
-        }
-
-        // 添加最后一个NAL单元
-        if (start < length) {
-            byte[] nal = new byte[length - start];
-            System.arraycopy(data, start, nal, 0, length - start);
-            nalUnits.add(nal);
-        }
-
-        return nalUnits;
-    }
-
+    // 查找软件解码器
     private static MediaCodec findSoftwareDecoder(String mimeType) {
         MediaCodecList codecList = new MediaCodecList(MediaCodecList.ALL_CODECS);
         for (MediaCodecInfo codecInfo : codecList.getCodecInfos()) {
@@ -219,7 +166,142 @@ public class H264PlayerActivity2 extends AppCompatActivity implements SurfaceHol
         }
     }
 
-    // 解码器工作线程
+    // 流式NAL单元读取器（支持3字节和4字节起始码）
+    private static class H264StreamReader {
+
+        private final InputStream inputStream;
+        private final byte[] buffer;
+        private int bufferPos;
+        private int bufferSize;
+        private boolean endOfStream;
+        private int bytesProcessed;
+
+        public H264StreamReader(InputStream is) {
+            this.inputStream = is;
+            this.buffer = new byte[BUFFER_SIZE];
+            this.bufferPos = 0;
+            this.bufferSize = 0;
+            this.endOfStream = false;
+            this.bytesProcessed = 0;
+        }
+
+        // 读取下一个NAL单元
+        public byte[] readNextNalUnit() throws IOException {
+            if (endOfStream && bufferSize == 0) {
+                return null; // 没有更多数据
+            }
+
+            // 查找起始码
+            StartCodeInfo startCodeInfo = findStartCode();
+            if (startCodeInfo == null) {
+                return null; // 没有找到起始码
+            }
+
+            // 跳过起始码
+            bufferPos += startCodeInfo.position + startCodeInfo.length;
+            bytesProcessed += startCodeInfo.position + startCodeInfo.length;
+
+            // 查找下一个起始码
+            StartCodeInfo nextStartCodeInfo = findStartCode();
+            if (nextStartCodeInfo == null) {
+                // 如果没有找到下一个起始码，读取剩余数据
+                return readRemainingData();
+            }
+
+            // 提取NAL单元
+            int nalLength = nextStartCodeInfo.position;
+            byte[] nal = new byte[nalLength];
+            System.arraycopy(buffer, bufferPos, nal, 0, nalLength);
+            bufferPos += nalLength;
+            bytesProcessed += nalLength;
+
+            return nal;
+        }
+
+        // 查找起始码信息
+        private StartCodeInfo findStartCode() throws IOException {
+            while (true) {
+                // 检查缓冲区中是否有足够的数据
+                if (bufferSize - bufferPos < 4) {
+                    if (!refillBuffer()) {
+                        return null; // 没有更多数据
+                    }
+                }
+
+                // 在缓冲区中查找起始码
+                for (int i = bufferPos; i <= bufferSize - 4; i++) {
+                    // 检测4字节起始码 (0x00000001)
+                    if (buffer[i] == 0x00 && buffer[i + 1] == 0x00 && buffer[i + 2] == 0x00 && buffer[i + 3] == 0x01) {
+                        return new StartCodeInfo(i - bufferPos, 4);
+                    }
+
+                    // 检测3字节起始码 (0x000001)
+                    if (buffer[i] == 0x00 && buffer[i + 1] == 0x00 && buffer[i + 2] == 0x01) {
+                        return new StartCodeInfo(i - bufferPos, 3);
+                    }
+                }
+
+                // 如果没有找到起始码，尝试读取更多数据
+                if (!refillBuffer()) {
+                    return null; // 没有更多数据
+                }
+            }
+        }
+
+        // 填充缓冲区
+        private boolean refillBuffer() throws IOException {
+            if (endOfStream) {
+                return false;
+            }
+
+            // 移动剩余数据到缓冲区开头
+            int remaining = bufferSize - bufferPos;
+            if (remaining > 0) {
+                System.arraycopy(buffer, bufferPos, buffer, 0, remaining);
+            }
+
+            bufferPos = 0;
+            bufferSize = remaining;
+
+            // 读取新数据
+            int bytesRead = inputStream.read(buffer, bufferSize, buffer.length - bufferSize);
+            if (bytesRead == -1) {
+                endOfStream = true;
+                return bufferSize > 0; // 如果还有剩余数据返回true
+            }
+
+            bufferSize += bytesRead;
+            return true;
+        }
+
+        // 读取剩余数据作为最后一个NAL单元
+        private byte[] readRemainingData() {
+            int nalLength = bufferSize - bufferPos;
+            if (nalLength <= 0) {
+                return null;
+            }
+
+            byte[] nal = new byte[nalLength];
+            System.arraycopy(buffer, bufferPos, nal, 0, nalLength);
+            bufferPos += nalLength;
+            bytesProcessed += nalLength;
+            return nal;
+        }
+    }
+
+    // 起始码信息类
+    private static class StartCodeInfo {
+
+        public final int position; // 起始码在缓冲区中的位置（相对于bufferPos）
+        public final int length;   // 起始码长度（3或4）
+
+        public StartCodeInfo(int position, int length) {
+            this.position = position;
+            this.length = length;
+        }
+    }
+
+    // 解码器工作线程（流式读取版本）
     private class DecoderRunnable implements Runnable {
 
         private final File h264File;
@@ -231,23 +313,16 @@ public class H264PlayerActivity2 extends AppCompatActivity implements SurfaceHol
         @Override
         public void run() {
             try (InputStream is = new BufferedInputStream(new FileInputStream(h264File))) {
-                byte[] fileData = new byte[(int) h264File.length()];
-                int bytesRead = is.read(fileData);
-
-                if (bytesRead <= 0) {
-                    return;
-                }
-
-                // 分割NAL单元
-                List<byte[]> nalUnits = splitNalUnits2(fileData, bytesRead);
+                H264StreamReader streamReader = new H264StreamReader(is);
 
                 long presentationTimeUs = 0;
                 boolean isWaitingForIDR = false;
                 ByteArrayOutputStream currentFrame = new ByteArrayOutputStream();
 
-                for (byte[] nal : nalUnits) {
-                    if (!isRunning) {
-                        break;
+                while (isRunning) {
+                    byte[] nal = streamReader.readNextNalUnit();
+                    if (nal == null) {
+                        break; // 没有更多数据
                     }
 
                     if (nal.length < 1) {
@@ -306,6 +381,9 @@ public class H264PlayerActivity2 extends AppCompatActivity implements SurfaceHol
                             // 其他NAL类型（可选处理）
                             break;
                     }
+
+                    // 处理输出
+                    drainOutput();
                 }
 
                 // 提交结束标志
@@ -317,7 +395,7 @@ public class H264PlayerActivity2 extends AppCompatActivity implements SurfaceHol
 
         private void submitSingleFrame(byte[] nal, long pts) {
             ByteBuffer frameData = ByteBuffer.allocate(nal.length + 4);
-            frameData.putInt(0x00000001);
+            frameData.putInt(0x00000001); // 统一使用4字节起始码
             frameData.put(nal);
             frameData.flip();
             submitFrame(frameData.array(), pts);
@@ -333,9 +411,6 @@ public class H264PlayerActivity2 extends AppCompatActivity implements SurfaceHol
 
                     mediaCodec.queueInputBuffer(inputBufferIndex, 0, frameData.length, presentationTimeUs, 0);
                 }
-
-                // 处理输出
-                drainOutput();
             } catch (Exception e) {
                 e.printStackTrace();
             }
