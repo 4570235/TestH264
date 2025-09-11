@@ -76,6 +76,7 @@ public class H264PlayerActivity extends AppCompatActivity implements SurfaceHold
             // 4. 启动解码线程
             isRunning = true;
             decoderThread = new Thread(new DecoderRunnable(h264File));
+            //decoderThread.setPriority(Thread.MAX_PRIORITY); // 设置高优先级
             decoderThread.start();
         } catch (IOException e) {
             e.printStackTrace();
@@ -99,10 +100,12 @@ public class H264PlayerActivity extends AppCompatActivity implements SurfaceHold
         }
     }
 
-    // 解码器工作线程（流式读取版本）
+    // 解码器工作线程
     private class DecoderRunnable implements Runnable {
 
         private final File h264File;
+        private long startTimeNs = -1; // 播放开始时间（纳秒）
+        private long frameCounter = 0; // 帧计数器
 
         public DecoderRunnable(File h264File) {
             this.h264File = h264File;
@@ -113,11 +116,13 @@ public class H264PlayerActivity extends AppCompatActivity implements SurfaceHold
             try (InputStream is = new BufferedInputStream(new FileInputStream(h264File))) {
                 H264StreamReader streamReader = new H264StreamReader(is);
 
-                long presentationTimeUs = 0;
                 boolean isWaitingForIDR = false;
                 ByteArrayOutputStream currentFrame = new ByteArrayOutputStream();
 
                 while (isRunning) {
+                    // 计算当前帧应该显示的时间（微秒）
+                    long presentationTimeUs = calculatePresentationTime();
+
                     byte[] nal = streamReader.readNextNalUnit();
                     if (nal == null) {
                         break; // 没有更多数据
@@ -157,11 +162,11 @@ public class H264PlayerActivity extends AppCompatActivity implements SurfaceHold
                                 submitFrame(currentFrame.toByteArray(), presentationTimeUs);
                                 currentFrame.reset();
                                 isWaitingForIDR = false;
-                                presentationTimeUs += FRAME_INTERVAL_US;
+                                frameCounter++;
                             } else {
                                 // 提交单个NAL单元
                                 submitSingleFrame(nal, presentationTimeUs);
-                                presentationTimeUs += FRAME_INTERVAL_US;
+                                frameCounter++;
                             }
                             break;
 
@@ -172,13 +177,16 @@ public class H264PlayerActivity extends AppCompatActivity implements SurfaceHold
                                 isWaitingForIDR = false;
                             }
                             submitSingleFrame(nal, presentationTimeUs);
-                            presentationTimeUs += FRAME_INTERVAL_US;
+                            frameCounter++;
                             break;
 
                         default:
                             // 其他NAL类型（可选处理）
                             break;
                     }
+
+                    // 控制播放速度
+                    controlPlaybackSpeed(presentationTimeUs);
 
                     // 处理输出
                     drainOutput();
@@ -188,6 +196,42 @@ public class H264PlayerActivity extends AppCompatActivity implements SurfaceHold
                 signalEndOfStream();
             } catch (IOException e) {
                 e.printStackTrace();
+            }
+        }
+
+        // 计算当前帧的呈现时间
+        private long calculatePresentationTime() {
+            if (startTimeNs == -1) {
+                startTimeNs = System.nanoTime();
+                return 0;
+            }
+
+            // 计算基于帧计数的时间
+            return frameCounter * FRAME_INTERVAL_US;
+        }
+
+        // 控制播放速度
+        private void controlPlaybackSpeed(long presentationTimeUs) {
+            // 计算当前帧应该显示的时间点（纳秒）
+            long targetTimeNs = startTimeNs + presentationTimeUs * 1000;
+
+            // 计算当前系统时间
+            long currentTimeNs = System.nanoTime();
+
+            // 计算需要等待的时间（纳秒）
+            long sleepTimeNs = targetTimeNs - currentTimeNs;
+
+            // 如果播放太快，等待一段时间
+            if (sleepTimeNs > 1000) { // 差异大于1微秒才等待
+                try {
+                    // 将纳秒转换为毫秒和纳秒
+                    long sleepMs = sleepTimeNs / 1000000;
+                    int sleepNs = (int) (sleepTimeNs % 1000000);
+
+                    Thread.sleep(sleepMs, sleepNs);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
             }
         }
 
@@ -219,6 +263,23 @@ public class H264PlayerActivity extends AppCompatActivity implements SurfaceHold
             int outputBufferIndex;
 
             while ((outputBufferIndex = mediaCodec.dequeueOutputBuffer(bufferInfo, 0)) >= 0) {
+                // 检查渲染时间
+                long renderTimeNs = startTimeNs + bufferInfo.presentationTimeUs * 1000;
+                long currentTimeNs = System.nanoTime();
+
+                // 如果渲染时间还没到，等待
+                if (renderTimeNs > currentTimeNs) {
+                    long sleepTimeNs = renderTimeNs - currentTimeNs;
+                    if (sleepTimeNs > 1000) {
+                        try {
+                            Thread.sleep(sleepTimeNs / 1000000, (int) (sleepTimeNs % 1000000));
+                        } catch (InterruptedException e) {
+                            Thread.currentThread().interrupt();
+                        }
+                    }
+                }
+
+                // 渲染帧
                 mediaCodec.releaseOutputBuffer(outputBufferIndex, true);
             }
         }
