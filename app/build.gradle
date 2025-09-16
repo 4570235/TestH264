@@ -7,7 +7,7 @@ android {
     compileSdk 35
 
     defaultConfig {
-        applicationId "com.handley.myapplication"
+        applicationId "com.handley.TestH264.h"
         minSdk 31
         targetSdk 35
         versionCode 1

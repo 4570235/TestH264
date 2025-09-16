@@ -202,7 +202,7 @@ public class MainActivity extends AppCompatActivity implements OnH264DataListene
         try {
             Log.i(TAG, "startDecoder()");
             // 1. 初始化MediaCodec
-            final boolean soft = true;
+            final boolean soft = false;
             mediaCodec = soft ? Utils.findSoftwareDecoder(MIME_TYPE) : MediaCodec.createDecoderByType(MIME_TYPE);
 
             // 从SPS中解析视频宽度
