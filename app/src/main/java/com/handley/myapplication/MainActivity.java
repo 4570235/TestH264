@@ -25,6 +25,7 @@ public class MainActivity extends AppCompatActivity implements OnH264DataListene
     private static final String MIME_TYPE = "video/avc";
     private static final int FRAME_RATE = 25; // 假设帧率
     private final MyServer myServer = new MyServer(this);
+    private long startTime = Long.MIN_VALUE; // 播放开始时间（毫秒）
     private MediaCodec mediaCodec;
     private SurfaceView surfaceView;
     private Surface surface;
@@ -71,9 +72,17 @@ public class MainActivity extends AppCompatActivity implements OnH264DataListene
         stopDecoder();
     }
 
-
     @Override
-    public void onDataReceived(byte[] data, long presentationTimeUs, int rotation) {
+    public void onDataReceived(byte[] data, long pts, int rotation) {
+        if (startTime == Long.MIN_VALUE) {
+            long currentTime = System.nanoTime() / 1000000;
+            startTime = currentTime - pts;
+            Log.d(TAG, "onDataReceived init currentTime=" + currentTime + " pts=" + pts + " startTime=" + startTime);
+        }
+
+        // 控制播放速度
+        controlPlaybackSpeed(pts);
+
         // 将字节数组包装成 InputStream，以便复用 H264StreamReader 的逻辑
         try (InputStream is = new ByteArrayInputStream(data)) {
             H264StreamReader streamReader = new H264StreamReader(is);
@@ -90,7 +99,7 @@ public class MainActivity extends AppCompatActivity implements OnH264DataListene
                 }
 
                 int nalType = nal[0] & 0x1F;
-                Log.v(TAG, "parseH264Data nalType=" + nalType);
+                //Log.v(TAG, "onDataReceived nalType=" + nalType);
                 switch (nalType) {
                     case 7: // SPS
                         isWaitingForIDR = true;
@@ -118,14 +127,14 @@ public class MainActivity extends AppCompatActivity implements OnH264DataListene
                         if (isWaitingForIDR) {
                             currentFrame.write(new byte[]{0, 0, 0, 1});
                             currentFrame.write(nal);
-                            submitFrame(currentFrame.toByteArray(), presentationTimeUs);
-                            Log.d(TAG, "submitFrame");
+                            submitFrame(currentFrame.toByteArray(), pts);
+                            //Log.d(TAG, "submitFrame");
                             currentFrame.reset();
                             isWaitingForIDR = false;
                         } else {
                             // 提交单个NAL单元
-                            submitSingleFrame(nal, presentationTimeUs);
-                            Log.d(TAG, "submitSingleFrame");
+                            submitSingleFrame(nal, pts);
+                            //Log.d(TAG, "submitSingleFrame");
                         }
                         break;
 
@@ -135,8 +144,8 @@ public class MainActivity extends AppCompatActivity implements OnH264DataListene
                             currentFrame.reset();
                             isWaitingForIDR = false;
                         }
-                        submitSingleFrame(nal, presentationTimeUs);
-                        Log.d(TAG, "submitSingleFrame");
+                        submitSingleFrame(nal, pts);
+                        //Log.d(TAG, "submitSingleFrame");
                         break;
 
                     default:
@@ -146,10 +155,31 @@ public class MainActivity extends AppCompatActivity implements OnH264DataListene
 
                 // 处理输出
                 drainOutput();
-                Log.d(TAG, "drainOutput");
             }
         } catch (IOException e) {
             e.printStackTrace();
+        }
+    }
+
+    // 控制播放速度
+    private void controlPlaybackSpeed(long pts) {
+        // 计算当前帧应该显示的时间点
+        long targetTime = startTime + pts;
+        // 计算当前系统时间
+        long currentTime = System.nanoTime() / 1000000;
+        // 计算需要等待的时间
+        long sleepTime = targetTime - currentTime;
+        Log.v(TAG,
+                "controlPlaybackSpeed pts=" + pts + " targetTime=" + targetTime + " currentTime=" + currentTime
+                        + " sleepTime=" + sleepTime);
+
+        // 如果播放太快，等待一段时间
+        if (sleepTime > 1000) { // 差异大于1毫秒才等待
+            try {
+                Thread.sleep(sleepTime);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
         }
     }
 
@@ -193,6 +223,25 @@ public class MainActivity extends AppCompatActivity implements OnH264DataListene
         int outputBufferIndex;
 
         while ((outputBufferIndex = mediaCodec.dequeueOutputBuffer(bufferInfo, 0)) >= 0) {
+            // 检查渲染时间
+            long renderTime = startTime + bufferInfo.presentationTimeUs;
+            long currentTime = System.nanoTime() / 1000000;
+            Log.d(TAG,
+                    "drainOutput() pts=" + bufferInfo.presentationTimeUs + " renderTime=" + renderTime + " currentTime="
+                            + currentTime + " sleepTime=" + (renderTime - currentTime));
+
+            // 如果渲染时间还没到，等待
+            if (renderTime > currentTime) {
+                long sleepTime = renderTime - currentTime;
+                if (sleepTime > 1) {
+                    try {
+                        Thread.sleep(sleepTime);
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                    }
+                }
+            }
+
             // 渲染帧
             mediaCodec.releaseOutputBuffer(outputBufferIndex, true);
         }
@@ -200,23 +249,22 @@ public class MainActivity extends AppCompatActivity implements OnH264DataListene
 
     private void startDecoder() {
         try {
-            Log.i(TAG, "startDecoder()");
-            // 1. 初始化MediaCodec
-            final boolean soft = false;
-            mediaCodec = soft ? Utils.findSoftwareDecoder(MIME_TYPE) : MediaCodec.createDecoderByType(MIME_TYPE);
-
-            // 从SPS中解析视频宽度
+            // 从SPS中解析视频宽高
             int[] dimensions = Utils.parseSps(sps);
 
-            // 3. 创建并配置MediaFormat
+            // 创建并配置MediaFormat
             MediaFormat format = MediaFormat.createVideoFormat(MIME_TYPE, dimensions[0], dimensions[1]);
-            format.setByteBuffer("csd-0", ByteBuffer.wrap(sps));
-            format.setByteBuffer("csd-1", ByteBuffer.wrap(pps));
+            format.setByteBuffer("csd-0", ByteBuffer.wrap(Utils.addStartCode(sps)));
+            format.setByteBuffer("csd-1", ByteBuffer.wrap(Utils.addStartCode(pps)));
             format.setInteger(MediaFormat.KEY_FRAME_RATE, FRAME_RATE);
 
+            // 初始化MediaCodec
+            final boolean software = false; // 是否使用软件解码器
+            mediaCodec = software ? Utils.findSoftwareDecoder(MIME_TYPE) : MediaCodec.createDecoderByType(MIME_TYPE);
             mediaCodec.configure(format, surface, null, 0);
             mediaCodec.start();
-            Log.i(TAG, "startDecoder() soft=" + soft + " dimensions=" + dimensions[0] + "x" + dimensions[1]);
+
+            Log.i(TAG, "startDecoder() soft=" + software + " dimensions=" + dimensions[0] + "x" + dimensions[1]);
         } catch (IOException e) {
             e.printStackTrace();
         }
