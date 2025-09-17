@@ -11,20 +11,20 @@ import android.view.SurfaceView;
 import android.view.View;
 import android.widget.Button;
 import androidx.appcompat.app.AppCompatActivity;
-import com.handley.myapplication.MyServer.OnH264DataListener;
+import com.handley.myapplication.MyVideoServer.OnH264DataListener;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.ByteBuffer;
 
-// 演示 TCP Client MyServer 发送 dump.h264(含私有协议头) 文件
+// 演示 TCP Client MyVideoServer 发送 dump.h264(含私有协议头) 文件
 public class MainActivity extends AppCompatActivity implements OnH264DataListener, Callback {
 
     private static final String TAG = Utils.TAG + "MainActivity";
     private static final String MIME_TYPE = "video/avc";
     private static final int FRAME_RATE = 25; // 假设帧率
-    private final MyServer myServer = new MyServer(this);
+    private final MyVideoServer myVideoServer = new MyVideoServer(this);
     private long startTime = Long.MIN_VALUE; // 播放开始时间（毫秒）
     private MediaCodec mediaCodec;
     private SurfaceView surfaceView;
@@ -46,16 +46,18 @@ public class MainActivity extends AppCompatActivity implements OnH264DataListene
         Button btn = findViewById(R.id.btn);
         btn.setVisibility(View.VISIBLE);
         // 点击启动客户端发送 dump.h264 文件。
-        btn.setOnClickListener(v -> new MyClient(MainActivity.this).sendH264File());
+        btn.setOnClickListener(v -> new MyVideoClient(MainActivity.this).sendH264File());
 
         // 启动服务器。
-        myServer.start();
+        myVideoServer.start();
+        Log.i(TAG, "onCreate");
     }
 
     @Override
     protected void onDestroy() {
         super.onDestroy();
-        myServer.stop();
+        Log.i(TAG, "onDestroy");
+        myVideoServer.stop();
     }
 
     @Override
@@ -191,7 +193,7 @@ public class MainActivity extends AppCompatActivity implements OnH264DataListene
         submitFrame(frameData.array(), pts);
     }
 
-    private void submitFrame(byte[] frameData, long presentationTimeUs) {
+    private synchronized void submitFrame(byte[] frameData, long presentationTimeUs) {
         if (hasStop) {
             return;
         }
@@ -212,7 +214,7 @@ public class MainActivity extends AppCompatActivity implements OnH264DataListene
         }
     }
 
-    private void drainOutput() {
+    private synchronized void drainOutput() {
         if (hasStop) {
             return;
         }
@@ -247,7 +249,7 @@ public class MainActivity extends AppCompatActivity implements OnH264DataListene
         }
     }
 
-    private void startDecoder() {
+    private synchronized void startDecoder() {
         try {
             // 从SPS中解析视频宽高
             int[] dimensions = Utils.parseSps(sps);
@@ -270,7 +272,7 @@ public class MainActivity extends AppCompatActivity implements OnH264DataListene
         }
     }
 
-    private void stopDecoder() {
+    private synchronized void stopDecoder() {
         Log.i(TAG, "stopDecoder()");
         hasStop = true;
         if (mediaCodec != null) {

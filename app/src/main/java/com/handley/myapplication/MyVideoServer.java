@@ -9,17 +9,17 @@ import java.net.ServerSocket;
 import java.net.Socket;
 import java.util.Arrays;
 
-public class MyServer {
+public class MyVideoServer {
 
     static final String SERVER_IP = "127.0.0.1";
     static final int SERVER_PORT = 24443;//23334;
-    private static final String TAG = Utils.TAG + "MyServer";
+    private static final String TAG = Utils.TAG + "MyVideoServer";
     private static final int BUFFER_SIZE = 1024 * 1024; // 1MB
     private final OnH264DataListener listener;
     private ServerSocket serverSocket;
     private boolean isRunning = true;
 
-    public MyServer(@NonNull OnH264DataListener listener) {
+    public MyVideoServer(@NonNull OnH264DataListener listener) {
         this.listener = listener;
     }
 
@@ -43,7 +43,7 @@ public class MyServer {
                 new Thread(() -> handleClient(clientSocket)).start();
             }
         } catch (IOException e) {
-            Log.e(TAG, "MyServer error: " + e.getMessage());
+            Log.e(TAG, "MyVideoServer error: " + e.getMessage());
         }
     }
 
@@ -64,6 +64,9 @@ public class MyServer {
                     bufferOffset -= processed;
                 } else if (processed < 0) {
                     Log.e(TAG, "Invalid message format");
+                    break;
+                }
+                if (!isRunning) {
                     break;
                 }
             }
@@ -114,7 +117,7 @@ public class MyServer {
                 typeName = "Unknown";
         }
 
-        Log.i(TAG, String.format("Received type=%s, ts=%d, rotation=%d, len=%d", typeName, header.timestamp,
+        Log.d(TAG, String.format("Received type=%s, ts=%d, rotation=%d, len=%d", typeName, header.timestamp,
                 header.rotation, payload.length));
 
         // 这里添加解码/渲染逻辑

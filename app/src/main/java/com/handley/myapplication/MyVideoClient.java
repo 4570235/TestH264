@@ -9,12 +9,12 @@ import java.io.IOException;
 import java.net.InetAddress;
 import java.net.Socket;
 
-public class MyClient {
+public class MyVideoClient {
 
-    private static final String TAG = Utils.TAG + "MyClient";
+    private static final String TAG = Utils.TAG + "MyVideoClient";
     private final Context context;
 
-    public MyClient(Context context) {
+    public MyVideoClient(Context context) {
         this.context = context;
     }
 
@@ -26,7 +26,7 @@ public class MyClient {
                 return;
             }
 
-            try (Socket socket = new Socket(InetAddress.getByName(MyServer.SERVER_IP), MyServer.SERVER_PORT);
+            try (Socket socket = new Socket(InetAddress.getByName(MyVideoServer.SERVER_IP), MyVideoServer.SERVER_PORT);
                     DataOutputStream outputStream = new DataOutputStream(socket.getOutputStream());
                     FileInputStream fileInputStream = new FileInputStream(file)) {
 
