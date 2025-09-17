@@ -11,8 +11,9 @@ import java.util.Arrays;
 
 public class MyServer {
 
+    static final String SERVER_IP = "127.0.0.1";
+    static final int SERVER_PORT = 24443;//23334;
     private static final String TAG = Utils.TAG + "MyServer";
-    private static final int SERVER_PORT = 23334;
     private static final int BUFFER_SIZE = 1024 * 1024; // 1MB
     private final OnH264DataListener listener;
     private ServerSocket serverSocket;
@@ -30,7 +31,7 @@ public class MyServer {
         try {
             serverSocket = new ServerSocket();
             serverSocket.setReuseAddress(true);
-            serverSocket.bind(new InetSocketAddress(InetAddress.getByName("127.0.0.1"), SERVER_PORT));
+            serverSocket.bind(new InetSocketAddress(InetAddress.getByName(SERVER_IP), SERVER_PORT));
 
             Log.i(TAG, "TCP server started, listening on port: " + SERVER_PORT);
 

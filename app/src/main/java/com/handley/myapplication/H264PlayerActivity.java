@@ -3,6 +3,7 @@ package com.handley.myapplication;
 import android.media.MediaCodec;
 import android.media.MediaFormat;
 import android.os.Bundle;
+import android.util.Log;
 import android.view.Surface;
 import android.view.SurfaceHolder;
 import android.view.SurfaceView;
@@ -18,6 +19,7 @@ import java.nio.ByteBuffer;
 // 演示读取本地 .h264文件 并解码播放
 public class H264PlayerActivity extends AppCompatActivity implements SurfaceHolder.Callback {
 
+    private static final String TAG = "H264PlayerActivity";
     private static final String MIME_TYPE = "video/avc";
     private static final int FRAME_RATE = 25; // 假设帧率
     private static final long FRAME_INTERVAL_US = 1000000 / FRAME_RATE;
@@ -34,7 +36,7 @@ public class H264PlayerActivity extends AppCompatActivity implements SurfaceHold
         setContentView(R.layout.activity_main);
         surfaceView = findViewById(R.id.surface_view);
         surfaceView.getHolder().addCallback(this);
-        h264File = AssetsFileCopier.copyAssetToExternalFilesDir(this, "dump.h264");
+        h264File = AssetsFileCopier.copyAssetToExternalFilesDir(this, "test.h264");
     }
 
     @Override
@@ -54,7 +56,7 @@ public class H264PlayerActivity extends AppCompatActivity implements SurfaceHold
     private void startDecoder(Surface surface) {
         try {
             // 1. 初始化MediaCodec
-            final boolean soft = true;
+            final boolean soft = false;
             mediaCodec = soft ? Utils.findSoftwareDecoder(MIME_TYPE) : MediaCodec.createDecoderByType(MIME_TYPE);
 
             // 2. 从文件中提取SPS和PPS
@@ -79,6 +81,7 @@ public class H264PlayerActivity extends AppCompatActivity implements SurfaceHold
             decoderThread = new Thread(new DecoderRunnable(h264File));
             //decoderThread.setPriority(Thread.MAX_PRIORITY); // 设置高优先级
             decoderThread.start();
+            Log.i(TAG, "startDecoder() soft=" + soft + " dimensions=" + dimensions[0] + "x" + dimensions[1]);
         } catch (IOException e) {
             e.printStackTrace();
         }
@@ -134,7 +137,7 @@ public class H264PlayerActivity extends AppCompatActivity implements SurfaceHold
                     }
 
                     int nalType = nal[0] & 0x1F;
-
+                    //Log.v(TAG, "nalType=" + nalType + " isWaitingForIDR=" + isWaitingForIDR + " frameCounter=" + frameCounter + " presentationTimeUs=" + presentationTimeUs);
                     switch (nalType) {
                         case 7: // SPS
                             isWaitingForIDR = true;

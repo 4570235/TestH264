@@ -12,8 +12,6 @@ import java.net.Socket;
 public class MyClient {
 
     private static final String TAG = Utils.TAG + "MyClient";
-    private static final String SERVER_IP = "127.0.0.1";
-    private static final int SERVER_PORT = 23334;
     private final Context context;
 
     public MyClient(Context context) {
@@ -28,7 +26,7 @@ public class MyClient {
                 return;
             }
 
-            try (Socket socket = new Socket(InetAddress.getByName(SERVER_IP), SERVER_PORT);
+            try (Socket socket = new Socket(InetAddress.getByName(MyServer.SERVER_IP), MyServer.SERVER_PORT);
                     DataOutputStream outputStream = new DataOutputStream(socket.getOutputStream());
                     FileInputStream fileInputStream = new FileInputStream(file)) {
 

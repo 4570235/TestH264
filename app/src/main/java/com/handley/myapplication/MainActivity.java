@@ -216,7 +216,7 @@ public class MainActivity extends AppCompatActivity implements OnH264DataListene
 
             mediaCodec.configure(format, surface, null, 0);
             mediaCodec.start();
-
+            Log.i(TAG, "startDecoder() soft=" + soft + " dimensions=" + dimensions[0] + "x" + dimensions[1]);
         } catch (IOException e) {
             e.printStackTrace();
         }
