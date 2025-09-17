@@ -75,7 +75,7 @@ public class H264ActivityTv extends AppCompatActivity implements TextureView.Sur
             byte[] pps = spsPps[1];
 
             // 从SPS中解析视频宽度
-            int[] dimensions = SpsParser.parseSps(sps);
+            int[] dimensions = Utils.parseSps(sps);
 
             // 3. 创建并配置MediaFormat
             MediaFormat format = MediaFormat.createVideoFormat(MIME_TYPE, dimensions[0], dimensions[1]);
@@ -147,7 +147,8 @@ public class H264ActivityTv extends AppCompatActivity implements TextureView.Sur
                     }
 
                     int nalType = nal[0] & 0x1F;
-                    //Log.v(TAG, "nalType=" + nalType + " isWaitingForIDR=" + isWaitingForIDR + " frameCounter=" + frameCounter + " presentationTimeUs=" + presentationTimeUs);
+                    Log.d(TAG, "nalType=" + nalType + " isWaitingForIDR=" + isWaitingForIDR + " frameCounter="
+                            + frameCounter + " presentationTimeUs=" + presentationTimeUs);
                     switch (nalType) {
                         case 7: // SPS
                             isWaitingForIDR = true;
@@ -173,13 +174,13 @@ public class H264ActivityTv extends AppCompatActivity implements TextureView.Sur
                             if (isWaitingForIDR) {
                                 currentFrame.write(new byte[]{0, 0, 0, 1});
                                 currentFrame.write(nal);
-                                submitFrame(currentFrame.toByteArray(), presentationTimeUs);
+                                submitFrame(currentFrame.toByteArray(), presentationTimeUs, true);
                                 currentFrame.reset();
                                 isWaitingForIDR = false;
                                 frameCounter++;
                             } else {
                                 // 提交单个NAL单元
-                                submitSingleFrame(nal, presentationTimeUs);
+                                submitSingleFrame(nal, presentationTimeUs, true);
                                 frameCounter++;
                             }
                             break;
@@ -190,7 +191,7 @@ public class H264ActivityTv extends AppCompatActivity implements TextureView.Sur
                                 currentFrame.reset();
                                 isWaitingForIDR = false;
                             }
-                            submitSingleFrame(nal, presentationTimeUs);
+                            submitSingleFrame(nal, presentationTimeUs, false);
                             frameCounter++;
                             break;
 
@@ -249,23 +250,26 @@ public class H264ActivityTv extends AppCompatActivity implements TextureView.Sur
             }
         }
 
-        private void submitSingleFrame(byte[] nal, long pts) {
+        private void submitSingleFrame(byte[] nal, long pts, boolean isKeyFrame) {
             ByteBuffer frameData = ByteBuffer.allocate(nal.length + 4);
             frameData.putInt(0x00000001); // 统一使用4字节起始码
             frameData.put(nal);
             frameData.flip();
-            submitFrame(frameData.array(), pts);
+            submitFrame(frameData.array(), pts, isKeyFrame);
         }
 
-        private void submitFrame(byte[] frameData, long presentationTimeUs) {
+        private void submitFrame(byte[] frameData, long presentationTimeUs, boolean isKeyFrame) {
             try {
                 int inputBufferIndex = mediaCodec.dequeueInputBuffer(10000);
                 if (inputBufferIndex >= 0) {
                     ByteBuffer inputBuffer = mediaCodec.getInputBuffer(inputBufferIndex);
                     inputBuffer.clear();
                     inputBuffer.put(frameData);
-
-                    mediaCodec.queueInputBuffer(inputBufferIndex, 0, frameData.length, presentationTimeUs, 0);
+                    Log.v(TAG, "submitFrame() inputBufferIndex=" + inputBufferIndex + " frameData.length="
+                            + frameData.length + " presentationTimeUs=" + presentationTimeUs + " isKeyFrame="
+                            + isKeyFrame);
+                    mediaCodec.queueInputBuffer(inputBufferIndex, 0, frameData.length, presentationTimeUs,
+                            isKeyFrame ? MediaCodec.BUFFER_FLAG_KEY_FRAME : 0);
                 }
             } catch (Exception e) {
                 e.printStackTrace();
@@ -275,11 +279,12 @@ public class H264ActivityTv extends AppCompatActivity implements TextureView.Sur
         private void drainOutput() {
             MediaCodec.BufferInfo bufferInfo = new MediaCodec.BufferInfo();
             int outputBufferIndex;
-
-            while ((outputBufferIndex = mediaCodec.dequeueOutputBuffer(bufferInfo, 0)) >= 0) {
+            //Log.v(TAG, "drainOutput() begin");
+            while ((outputBufferIndex = mediaCodec.dequeueOutputBuffer(bufferInfo, 10000)) >= 0) {
                 // 检查渲染时间
                 long renderTimeNs = startTimeNs + bufferInfo.presentationTimeUs * 1000;
                 long currentTimeNs = System.nanoTime();
+                //Log.v(TAG, "drainOutput() renderTimeNs=" + renderTimeNs + " currentTimeNs=" + currentTimeNs);
 
                 // 如果渲染时间还没到，等待
                 if (renderTimeNs > currentTimeNs) {
@@ -292,7 +297,8 @@ public class H264ActivityTv extends AppCompatActivity implements TextureView.Sur
                         }
                     }
                 }
-
+                Log.v(TAG, "drainOutput() outputBufferIndex=" + outputBufferIndex + " presentationTimeUs="
+                        + bufferInfo.presentationTimeUs);
                 // 渲染帧
                 mediaCodec.releaseOutputBuffer(outputBufferIndex, true);
             }
@@ -312,11 +318,14 @@ public class H264ActivityTv extends AppCompatActivity implements TextureView.Sur
                     mediaCodec.releaseOutputBuffer(outputBufferIndex, true);
                 } else if (outputBufferIndex == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
                     // 格式变化处理
+                    Log.w(TAG, "signalEndOfStream INFO_OUTPUT_FORMAT_CHANGED");
                 } else if (outputBufferIndex == MediaCodec.INFO_TRY_AGAIN_LATER) {
+                    Log.w(TAG, "signalEndOfStream INFO_TRY_AGAIN_LATER");
                     break;
                 }
 
                 if ((bufferInfo.flags & MediaCodec.BUFFER_FLAG_END_OF_STREAM) != 0) {
+                    Log.w(TAG, "signalEndOfStream BUFFER_FLAG_END_OF_STREAM");
                     break;
                 }
             }

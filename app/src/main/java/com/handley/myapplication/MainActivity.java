@@ -206,7 +206,7 @@ public class MainActivity extends AppCompatActivity implements OnH264DataListene
             mediaCodec = soft ? Utils.findSoftwareDecoder(MIME_TYPE) : MediaCodec.createDecoderByType(MIME_TYPE);
 
             // 从SPS中解析视频宽度
-            int[] dimensions = SpsParser.parseSps(sps);
+            int[] dimensions = Utils.parseSps(sps);
 
             // 3. 创建并配置MediaFormat
             MediaFormat format = MediaFormat.createVideoFormat(MIME_TYPE, dimensions[0], dimensions[1]);

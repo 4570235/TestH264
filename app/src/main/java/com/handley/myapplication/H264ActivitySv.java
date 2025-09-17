@@ -65,7 +65,7 @@ public class H264ActivitySv extends AppCompatActivity implements SurfaceHolder.C
             byte[] pps = spsPps[1];
 
             // 从SPS中解析视频宽度
-            int[] dimensions = SpsParser.parseSps(sps);
+            int[] dimensions = Utils.parseSps(sps);
 
             // 3. 创建并配置MediaFormat
             MediaFormat format = MediaFormat.createVideoFormat(MIME_TYPE, dimensions[0], dimensions[1]);
