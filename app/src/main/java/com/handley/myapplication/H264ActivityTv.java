@@ -1,12 +1,12 @@
 package com.handley.myapplication;
 
+import android.graphics.SurfaceTexture;
 import android.media.MediaCodec;
 import android.media.MediaFormat;
 import android.os.Bundle;
 import android.util.Log;
 import android.view.Surface;
-import android.view.SurfaceHolder;
-import android.view.SurfaceView;
+import android.view.TextureView;
 import androidx.appcompat.app.AppCompatActivity;
 import java.io.BufferedInputStream;
 import java.io.ByteArrayOutputStream;
@@ -16,16 +16,17 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.nio.ByteBuffer;
 
-// 演示读取本地 .h264文件 并解码播放
-public class H264PlayerActivity extends AppCompatActivity implements SurfaceHolder.Callback {
+// 使用 MediaCodec 解码 test.h264 文件，渲染到 TextureView 上
+public class H264ActivityTv extends AppCompatActivity implements TextureView.SurfaceTextureListener {
 
-    private static final String TAG = "H264PlayerActivity";
+    private static final String TAG = "H264ActivityTv";
     private static final String MIME_TYPE = "video/avc";
     private static final int FRAME_RATE = 25; // 假设帧率
     private static final long FRAME_INTERVAL_US = 1000000 / FRAME_RATE;
 
     private MediaCodec mediaCodec;
-    private SurfaceView surfaceView;
+    private TextureView textureView;
+    private Surface outputSurface;
     private Thread decoderThread;
     private File h264File;
     private volatile boolean isRunning = false;
@@ -33,24 +34,33 @@ public class H264PlayerActivity extends AppCompatActivity implements SurfaceHold
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        setContentView(R.layout.activity_main);
-        surfaceView = findViewById(R.id.surface_view);
-        surfaceView.getHolder().addCallback(this);
+        setContentView(R.layout.activity_textureview_main);
+        textureView = findViewById(R.id.texture_view);
+        textureView.setSurfaceTextureListener(this);
         h264File = AssetsFileCopier.copyAssetToExternalFilesDir(this, "test.h264");
     }
 
+    // TextureView回调方法
     @Override
-    public void surfaceCreated(SurfaceHolder holder) {
-        startDecoder(holder.getSurface());
+    public void onSurfaceTextureSizeChanged(SurfaceTexture surface, int width, int height) {
     }
 
     @Override
-    public void surfaceChanged(SurfaceHolder holder, int format, int width, int height) {
-    }
-
-    @Override
-    public void surfaceDestroyed(SurfaceHolder holder) {
+    public boolean onSurfaceTextureDestroyed(SurfaceTexture surface) {
         stopDecoder();
+        return true;
+    }
+
+    @Override
+    public void onSurfaceTextureUpdated(SurfaceTexture surface) {
+    }
+
+    @Override
+    public void onSurfaceTextureAvailable(SurfaceTexture surfaceTexture, int width, int height) {
+        // 创建Surface用于MediaCodec输出
+        outputSurface = new Surface(surfaceTexture);
+        // 开始解码
+        startDecoder(outputSurface);
     }
 
     private void startDecoder(Surface surface) {
