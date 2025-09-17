@@ -55,33 +55,32 @@ public class H264ActivitySv extends AppCompatActivity implements SurfaceHolder.C
 
     private void startDecoder(Surface surface) {
         try {
-            // 1. 初始化MediaCodec
-            final boolean soft = false;
-            mediaCodec = soft ? Utils.findSoftwareDecoder(MIME_TYPE) : MediaCodec.createDecoderByType(MIME_TYPE);
-
-            // 2. 从文件中提取SPS和PPS
+            // 从文件中提取SPS和PPS
             byte[][] spsPps = Utils.extractSpsPps(h264File);
             byte[] sps = spsPps[0];
             byte[] pps = spsPps[1];
 
-            // 从SPS中解析视频宽度
+            // 从SPS中解析视频宽高
             int[] dimensions = Utils.parseSps(sps);
 
-            // 3. 创建并配置MediaFormat
+            // 创建并配置MediaFormat
             MediaFormat format = MediaFormat.createVideoFormat(MIME_TYPE, dimensions[0], dimensions[1]);
-            format.setByteBuffer("csd-0", ByteBuffer.wrap(sps));
-            format.setByteBuffer("csd-1", ByteBuffer.wrap(pps));
+            format.setByteBuffer("csd-0", ByteBuffer.wrap(Utils.addStartCode(sps)));
+            format.setByteBuffer("csd-1", ByteBuffer.wrap(Utils.addStartCode(pps)));
             format.setInteger(MediaFormat.KEY_FRAME_RATE, FRAME_RATE);
 
+            // 初始化MediaCodec
+            final boolean software = false; // 是否使用软件解码器
+            mediaCodec = software ? Utils.findSoftwareDecoder(MIME_TYPE) : MediaCodec.createDecoderByType(MIME_TYPE);
             mediaCodec.configure(format, surface, null, 0);
             mediaCodec.start();
 
-            // 4. 启动解码线程
+            // 启动解码线程
             isRunning = true;
             decoderThread = new Thread(new DecoderRunnable(h264File));
             //decoderThread.setPriority(Thread.MAX_PRIORITY); // 设置高优先级
             decoderThread.start();
-            Log.i(TAG, "startDecoder() soft=" + soft + " dimensions=" + dimensions[0] + "x" + dimensions[1]);
+            Log.i(TAG, "startDecoder() soft=" + software + " dimensions=" + dimensions[0] + "x" + dimensions[1]);
         } catch (IOException e) {
             e.printStackTrace();
         }

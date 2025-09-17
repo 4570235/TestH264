@@ -12,9 +12,9 @@ import java.io.InputStream;
 
 public class Utils {
 
-    public static final String TAG = "[Test]";
+    public static final String TAG = "[TestH264]";
 
-    // 提取SPS和PPS（流式版本）
+    // 提取SPS和PPS, 返回SPS和PPS的字节数组，不带起始码 0x00 0x00 0x00 0x01
     public static byte[][] extractSpsPps(File file) throws IOException {
         try (InputStream is = new BufferedInputStream(new FileInputStream(file))) {
             H264StreamReader streamReader = new H264StreamReader(is);
@@ -44,8 +44,30 @@ public class Utils {
                 throw new IOException("SPS or PPS not found");
             }
 
+            System.out.println("SPS Hex: " + bytesToHex(sps));
+            System.out.println("PPS Hex: " + bytesToHex(pps));
             return new byte[][]{sps, pps};
         }
+    }
+
+    private static String bytesToHex(byte[] bytes) {
+        StringBuilder sb = new StringBuilder();
+        for (byte b : bytes) {
+            sb.append(String.format("%02X ", b));
+        }
+        return sb.toString();
+    }
+
+    public static byte[] addStartCode(byte[] data) {
+        byte[] newData = new byte[data.length + 4];
+        // 设置起始码：0x00, 0x00, 0x00, 0x01
+        newData[0] = 0x00;
+        newData[1] = 0x00;
+        newData[2] = 0x00;
+        newData[3] = 0x01;
+        // 复制原始数据到新数组
+        System.arraycopy(data, 0, newData, 4, data.length);
+        return newData;
     }
 
     public static int[] parseSps(byte[] sps) {
