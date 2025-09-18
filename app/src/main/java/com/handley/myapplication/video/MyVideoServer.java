@@ -2,8 +2,8 @@ package com.handley.myapplication.video;
 
 import android.util.Log;
 import androidx.annotation.NonNull;
-import com.handley.myapplication.MediaMessageHeader;
-import com.handley.myapplication.Utils;
+import com.handley.myapplication.common.MediaMessageHeader;
+import com.handley.myapplication.common.Utils;
 import java.io.IOException;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;

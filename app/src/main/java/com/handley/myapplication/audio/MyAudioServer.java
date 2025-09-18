@@ -2,8 +2,8 @@ package com.handley.myapplication.audio;
 
 
 import android.util.Log;
-import com.handley.myapplication.MediaMessageHeader;
-import com.handley.myapplication.Utils;
+import com.handley.myapplication.common.MediaMessageHeader;
+import com.handley.myapplication.common.Utils;
 import java.io.BufferedInputStream;
 import java.io.IOException;
 import java.io.InputStream;

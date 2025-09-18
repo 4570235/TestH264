@@ -1,4 +1,4 @@
-package com.handley.myapplication;
+package com.handley.myapplication.video;
 
 import android.graphics.ImageFormat;
 import android.media.Image;
@@ -13,9 +13,9 @@ import android.util.Log;
 import android.view.View;
 import android.widget.Button;
 import androidx.appcompat.app.AppCompatActivity;
-import com.handley.myapplication.video.H264StreamReader;
-import com.handley.myapplication.video.MyVideoClient;
-import com.handley.myapplication.video.MyVideoServer;
+import com.handley.myapplication.R;
+import com.handley.myapplication.common.AssetsFileCopier;
+import com.handley.myapplication.common.Utils;
 import com.handley.myapplication.video.MyVideoServer.OnH264DataListener;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
@@ -25,9 +25,9 @@ import java.io.InputStream;
 import java.nio.ByteBuffer;
 
 // 演示 MyVideoClient 向 MyVideoServer 发送 dump.h264(含私有协议头) 文件数据流。解码成 yuv420 数据保存成 jpg 文件。
-public class MainActivityYuv extends AppCompatActivity implements OnH264DataListener {
+public class H264ActivityTcpYuv extends AppCompatActivity implements OnH264DataListener {
 
-    private static final String TAG = Utils.TAG + "MainActivityYuv";
+    private static final String TAG = Utils.TAG + "H264ActivityTcpYuv";
     private static final String MIME_TYPE = "video/avc";
     private static final int FRAME_RATE = 25; // 假设帧率
     private final MyVideoServer myVideoServer = new MyVideoServer(this);
@@ -54,7 +54,7 @@ public class MainActivityYuv extends AppCompatActivity implements OnH264DataList
         AssetsFileCopier.copyAssetToExternalFilesDir(this, "dump.h264");
 
         // 点击启动客户端发送文件。
-        videoBtn.setOnClickListener(v -> new MyVideoClient(MainActivityYuv.this).sendH264File());
+        videoBtn.setOnClickListener(v -> new MyVideoClient(H264ActivityTcpYuv.this).sendH264File());
 
         // 启动服务器。
         myVideoServer.start();

@@ -1,4 +1,4 @@
-package com.handley.myapplication;
+package com.handley.myapplication.common;
 
 import android.content.Context;
 import android.os.Environment;

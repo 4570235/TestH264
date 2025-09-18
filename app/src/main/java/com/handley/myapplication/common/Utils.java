@@ -1,4 +1,4 @@
-package com.handley.myapplication;
+package com.handley.myapplication.common;
 
 import android.graphics.ImageFormat;
 import android.graphics.Rect;

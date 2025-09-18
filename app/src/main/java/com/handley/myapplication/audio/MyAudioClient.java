@@ -2,8 +2,8 @@ package com.handley.myapplication.audio;
 
 import android.content.Context;
 import android.util.Log;
-import com.handley.myapplication.AssetsFileCopier;
-import com.handley.myapplication.Utils;
+import com.handley.myapplication.common.AssetsFileCopier;
+import com.handley.myapplication.common.Utils;
 import java.io.BufferedInputStream;
 import java.io.File;
 import java.io.FileInputStream;

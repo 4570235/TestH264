@@ -1,4 +1,4 @@
-package com.handley.myapplication;
+package com.handley.myapplication.common;
 
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;

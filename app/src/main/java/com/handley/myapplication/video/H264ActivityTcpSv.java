@@ -1,4 +1,4 @@
-package com.handley.myapplication;
+package com.handley.myapplication.video;
 
 import android.media.MediaCodec;
 import android.media.MediaFormat;
@@ -11,11 +11,9 @@ import android.view.SurfaceView;
 import android.view.View;
 import android.widget.Button;
 import androidx.appcompat.app.AppCompatActivity;
-import com.handley.myapplication.audio.MyAudioServer;
-import com.handley.myapplication.audio.MyAudioServer.FrameCallback;
-import com.handley.myapplication.video.H264StreamReader;
-import com.handley.myapplication.video.MyVideoClient;
-import com.handley.myapplication.video.MyVideoServer;
+import com.handley.myapplication.R;
+import com.handley.myapplication.common.AssetsFileCopier;
+import com.handley.myapplication.common.Utils;
 import com.handley.myapplication.video.MyVideoServer.OnH264DataListener;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
@@ -24,13 +22,12 @@ import java.io.InputStream;
 import java.nio.ByteBuffer;
 
 // 演示 MyVideoClient 向 MyVideoServer 发送(含私有协议头的)文件数据流，解码播放。
-public class MainActivity extends AppCompatActivity implements OnH264DataListener, Callback, FrameCallback {
+public class H264ActivityTcpSv extends AppCompatActivity implements OnH264DataListener, Callback {
 
-    private static final String TAG = Utils.TAG + "MainActivity";
+    private static final String TAG = Utils.TAG + "H264ActivityTcpSv";
     private static final String MIME_TYPE = "video/avc";
     private static final int FRAME_RATE = 25; // 假设帧率
     private final MyVideoServer myVideoServer = new MyVideoServer(this);
-    private final MyAudioServer myAudioServer = new MyAudioServer(this);
     private long startTime = Long.MIN_VALUE; // 播放开始时间（毫秒）
     private MediaCodec mediaCodec;
     private SurfaceView surfaceView;
@@ -48,19 +45,16 @@ public class MainActivity extends AppCompatActivity implements OnH264DataListene
         Button videoBtn = findViewById(R.id.video_btn);
         Button audioBtn = findViewById(R.id.audio_btn);
         videoBtn.setVisibility(View.VISIBLE);
-        audioBtn.setVisibility(View.VISIBLE);
+        audioBtn.setVisibility(View.GONE);
 
         // 将Client要发送的文件复制到外部存储目录
         AssetsFileCopier.copyAssetToExternalFilesDir(this, "dump.h264");
-        AssetsFileCopier.copyAssetToExternalFilesDir(this, "test.opus");
 
         // 点击启动客户端发送文件。
-        videoBtn.setOnClickListener(v -> new MyVideoClient(MainActivity.this).sendH264File());
-        //audioBtn.setOnClickListener(v -> new MyAudioClient(MainActivity.this).sendOpusFile());
+        videoBtn.setOnClickListener(v -> new MyVideoClient(H264ActivityTcpSv.this).sendH264File());
 
         // 启动服务器。
         myVideoServer.start();
-        myAudioServer.start();
 
         Log.i(TAG, "onCreate");
     }
@@ -295,10 +289,5 @@ public class MainActivity extends AppCompatActivity implements OnH264DataListene
             mediaCodec.release();
             mediaCodec = null;
         }
-    }
-
-    @Override
-    public void onFrameReceived(MediaMessageHeader header, byte[] frameData) {
-
     }
 }
