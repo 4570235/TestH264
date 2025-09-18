@@ -1,5 +1,9 @@
 package com.handley.myapplication;
 
+import android.graphics.ImageFormat;
+import android.graphics.Rect;
+import android.graphics.YuvImage;
+import android.media.Image;
 import android.media.MediaCodec;
 import android.media.MediaCodecInfo;
 import android.media.MediaCodecList;
@@ -7,8 +11,10 @@ import android.util.Log;
 import java.io.BufferedInputStream;
 import java.io.File;
 import java.io.FileInputStream;
+import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.nio.ByteBuffer;
 
 public class Utils {
 
@@ -215,6 +221,46 @@ public class Utils {
             }
         }
         return null;
+    }
+
+    public static void saveImageAsJpeg(Image image, File file) {
+        try (FileOutputStream fos = new FileOutputStream(file)) {
+            // 将YUV_420_888转换为NV21
+            byte[] nv21 = YUV_420_888toNV21(image);
+
+            // 创建YuvImage并转换为JPEG
+            YuvImage yuvImage = new YuvImage(nv21, ImageFormat.NV21,
+                    image.getWidth(), image.getHeight(), null);
+            yuvImage.compressToJpeg(new Rect(0, 0, image.getWidth(), image.getHeight()),
+                    90, fos);
+
+            Log.d(TAG, "Saved frame: " + file.getAbsolutePath());
+        } catch (IOException e) {
+            Log.e(TAG, "Error saving JPEG", e);
+        }
+    }
+
+    // YUV_420_888转NV21的辅助方法
+    public static byte[] YUV_420_888toNV21(Image image) {
+        Image.Plane[] planes = image.getPlanes();
+        ByteBuffer yBuffer = planes[0].getBuffer();
+        ByteBuffer uBuffer = planes[1].getBuffer();
+        ByteBuffer vBuffer = planes[2].getBuffer();
+
+        int ySize = yBuffer.remaining();
+        int uSize = uBuffer.remaining();
+        int vSize = vBuffer.remaining();
+
+        byte[] nv21 = new byte[ySize + uSize + vSize];
+
+        // Y分量
+        yBuffer.get(nv21, 0, ySize);
+
+        // U和V分量交错存储
+        vBuffer.get(nv21, ySize, vSize);
+        uBuffer.get(nv21, ySize + vSize, uSize);
+
+        return nv21;
     }
 
     // 辅助类：位读取器
