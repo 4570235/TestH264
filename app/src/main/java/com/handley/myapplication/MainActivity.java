@@ -11,9 +11,8 @@ import android.view.SurfaceView;
 import android.view.View;
 import android.widget.Button;
 import androidx.appcompat.app.AppCompatActivity;
-import com.handley.myapplication.audio.MyAudioClient;
 import com.handley.myapplication.audio.MyAudioServer;
-import com.handley.myapplication.audio.MyAudioServer.OnOpusDataListener;
+import com.handley.myapplication.audio.MyAudioServer.FrameCallback;
 import com.handley.myapplication.video.H264StreamReader;
 import com.handley.myapplication.video.MyVideoClient;
 import com.handley.myapplication.video.MyVideoServer;
@@ -25,7 +24,7 @@ import java.io.InputStream;
 import java.nio.ByteBuffer;
 
 // 演示 MyVideoClient 向 MyVideoServer 发送(含私有协议头的)文件数据流，解码播放。
-public class MainActivity extends AppCompatActivity implements OnH264DataListener, Callback, OnOpusDataListener {
+public class MainActivity extends AppCompatActivity implements OnH264DataListener, Callback, FrameCallback {
 
     private static final String TAG = Utils.TAG + "MainActivity";
     private static final String MIME_TYPE = "video/avc";
@@ -57,7 +56,7 @@ public class MainActivity extends AppCompatActivity implements OnH264DataListene
 
         // 点击启动客户端发送文件。
         videoBtn.setOnClickListener(v -> new MyVideoClient(MainActivity.this).sendH264File());
-        audioBtn.setOnClickListener(v -> new MyAudioClient(MainActivity.this).sendOpusFile());
+        //audioBtn.setOnClickListener(v -> new MyAudioClient(MainActivity.this).sendOpusFile());
 
         // 启动服务器。
         myVideoServer.start();
@@ -92,7 +91,7 @@ public class MainActivity extends AppCompatActivity implements OnH264DataListene
         if (startTime == Long.MIN_VALUE) {
             long currentTime = System.nanoTime() / 1000000;
             startTime = currentTime - pts;
-            Log.d(TAG, "onDataReceived init currentTime=" + currentTime + " pts=" + pts + " startTime=" + startTime);
+            Log.i(TAG, "onDataReceived init currentTime=" + currentTime + " pts=" + pts + " startTime=" + startTime);
         }
 
         // 控制播放速度
@@ -299,7 +298,7 @@ public class MainActivity extends AppCompatActivity implements OnH264DataListene
     }
 
     @Override
-    public void onOpusDataReceived(byte[] data, long timestamp) {
+    public void onFrameReceived(MediaMessageHeader header, byte[] frameData) {
 
     }
 }
