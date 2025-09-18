@@ -1,10 +1,11 @@
-package com.handley.myapplication;
+package com.handley.myapplication.video;
 
 import java.io.IOException;
 import java.io.InputStream;
 
 // 流式NAL单元读取器（支持3字节和4字节起始码）
 public class H264StreamReader {
+
     private static final int BUFFER_SIZE = 1024 * 1024; // 1MB 缓冲区
 
     private final InputStream inputStream;

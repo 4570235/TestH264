@@ -3,11 +3,14 @@ package com.handley.myapplication;
 import android.graphics.ImageFormat;
 import android.graphics.Rect;
 import android.graphics.YuvImage;
+import android.media.AudioFormat;
 import android.media.Image;
 import android.media.MediaCodec;
 import android.media.MediaCodecInfo;
 import android.media.MediaCodecList;
+import android.media.MediaFormat;
 import android.util.Log;
+import com.handley.myapplication.video.H264StreamReader;
 import java.io.BufferedInputStream;
 import java.io.File;
 import java.io.FileInputStream;
@@ -18,7 +21,7 @@ import java.nio.ByteBuffer;
 
 public class Utils {
 
-    public static final String TAG = "[TestH264]";
+    public static final String TAG = "[TestP]";
 
     // 提取SPS和PPS, 返回SPS和PPS的字节数组，不带起始码 0x00 0x00 0x00 0x01
     public static byte[][] extractSpsPps(File file) throws IOException {
@@ -261,6 +264,45 @@ public class Utils {
         uBuffer.get(nv21, ySize + vSize, uSize);
 
         return nv21;
+    }
+
+    public static MediaFormat createAudioFormat() {
+        // 创建基础格式（必须参数）
+        MediaFormat format = MediaFormat.createAudioFormat("audio/opus", 48000, 2);
+
+// 设置通道掩码（立体声）
+        format.setInteger(MediaFormat.KEY_CHANNEL_MASK, AudioFormat.CHANNEL_OUT_STEREO);
+
+// 设置 CSD 缓冲区（关键配置数据）
+// CSD-0: Identification Header (19字节)
+        byte[] csd0 = {79, 112, 117, 115, 72, 101, 97, 100, 1, 2, 56, 1, -128, -69, 0, 0, 0, 0, 0};
+        format.setByteBuffer("csd-0", ByteBuffer.wrap(csd0));
+
+// CSD-1: Pre-skip 和 ID (8字节)
+        byte[] csd1 = {-96, 46, 99, 0, 0, 0, 0, 0};
+        format.setByteBuffer("csd-1", ByteBuffer.wrap(csd1));
+
+// CSD-2: Comment Header (8字节)
+        byte[] csd2 = {0, -76, -60, 4, 0, 0, 0, 0};
+        format.setByteBuffer("csd-2", ByteBuffer.wrap(csd2));
+
+// 可选：设置持续时间（单位微秒）
+        format.setLong(MediaFormat.KEY_DURATION, 6993125);
+
+        format.setInteger(MediaFormat.KEY_TRACK_ID, 1);
+
+        return format;
+    }
+
+    public static MediaMessageHeader createMediaMessageHeader(int dataLen, long pts) {
+        // 1. 创建测试头
+        MediaMessageHeader originalHeader = new MediaMessageHeader();
+        originalHeader.magic = MediaMessageHeader.MAGIC;
+        originalHeader.type = MediaMessageHeader.OPUS;
+        originalHeader.timestamp = pts;
+        originalHeader.rotation = 0;
+        originalHeader.dataLen = dataLen;
+        return originalHeader;
     }
 
     // 辅助类：位读取器

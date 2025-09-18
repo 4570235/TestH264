@@ -1,7 +1,8 @@
-package com.handley.myapplication;
+package com.handley.myapplication.video;
 
 import android.content.Context;
 import android.util.Log;
+import com.handley.myapplication.Utils;
 import java.io.DataOutputStream;
 import java.io.File;
 import java.io.FileInputStream;

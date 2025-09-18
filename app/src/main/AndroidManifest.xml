@@ -16,7 +16,7 @@
             android:theme="@style/Theme.MyApplication"
             tools:targetApi="31">
         <activity
-                android:name=".MainActivityIr"
+                android:name=".audio.OpusActivityMe"
                 android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />

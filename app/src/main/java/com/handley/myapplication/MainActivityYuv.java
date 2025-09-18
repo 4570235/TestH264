@@ -1,34 +1,41 @@
 package com.handley.myapplication;
 
+import android.graphics.ImageFormat;
+import android.media.Image;
+import android.media.ImageReader;
 import android.media.MediaCodec;
 import android.media.MediaFormat;
 import android.os.Bundle;
+import android.os.Environment;
+import android.os.Handler;
+import android.os.HandlerThread;
 import android.util.Log;
-import android.view.Surface;
-import android.view.SurfaceHolder;
-import android.view.SurfaceHolder.Callback;
-import android.view.SurfaceView;
 import android.view.View;
 import android.widget.Button;
 import androidx.appcompat.app.AppCompatActivity;
-import com.handley.myapplication.MyVideoServer.OnH264DataListener;
+import com.handley.myapplication.video.H264StreamReader;
+import com.handley.myapplication.video.MyVideoClient;
+import com.handley.myapplication.video.MyVideoServer;
+import com.handley.myapplication.video.MyVideoServer.OnH264DataListener;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
+import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.ByteBuffer;
 
-// 演示 MyVideoClient 向 MyVideoServer 发送 dump.h264(含私有协议头) 文件数据流。解码渲染到 SurfaceView。
-public class MainActivitySv extends AppCompatActivity implements OnH264DataListener, Callback {
+// 演示 MyVideoClient 向 MyVideoServer 发送 dump.h264(含私有协议头) 文件数据流。解码成 yuv420 数据保存成 jpg 文件。
+public class MainActivityYuv extends AppCompatActivity implements OnH264DataListener {
 
-    private static final String TAG = Utils.TAG + "MainActivitySv";
+    private static final String TAG = Utils.TAG + "MainActivityYuv";
     private static final String MIME_TYPE = "video/avc";
     private static final int FRAME_RATE = 25; // 假设帧率
     private final MyVideoServer myVideoServer = new MyVideoServer(this);
+    private int outputFrameIndex = 0;
     private long startTime = Long.MIN_VALUE; // 播放开始时间（毫秒）
     private MediaCodec mediaCodec;
-    private SurfaceView surfaceView;
-    private Surface surface;
+    private ImageReader imageReader;
+    private HandlerThread imageThread;
     private byte[] sps = null;
     private byte[] pps = null;
     private volatile boolean hasStop = false;
@@ -37,16 +44,17 @@ public class MainActivitySv extends AppCompatActivity implements OnH264DataListe
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
-        surfaceView = findViewById(R.id.surface_view);
-        surfaceView.getHolder().addCallback(this);
 
-        // 将 dump.h264 文件复制到外部存储目录
+        Button videoBtn = findViewById(R.id.video_btn);
+        Button audioBtn = findViewById(R.id.audio_btn);
+        videoBtn.setVisibility(View.VISIBLE);
+        audioBtn.setVisibility(View.GONE);
+
+        // 将Client要发送的文件复制到外部存储目录
         AssetsFileCopier.copyAssetToExternalFilesDir(this, "dump.h264");
 
-        Button btn = findViewById(R.id.btn);
-        btn.setVisibility(View.VISIBLE);
-        // 点击启动客户端发送 dump.h264 文件。
-        btn.setOnClickListener(v -> new MyVideoClient(MainActivitySv.this).sendH264File());
+        // 点击启动客户端发送文件。
+        videoBtn.setOnClickListener(v -> new MyVideoClient(MainActivityYuv.this).sendH264File());
 
         // 启动服务器。
         myVideoServer.start();
@@ -58,19 +66,6 @@ public class MainActivitySv extends AppCompatActivity implements OnH264DataListe
         super.onDestroy();
         Log.i(TAG, "onDestroy");
         myVideoServer.stop();
-    }
-
-    @Override
-    public void surfaceCreated(SurfaceHolder holder) {
-        surface = holder.getSurface();
-    }
-
-    @Override
-    public void surfaceChanged(SurfaceHolder holder, int format, int width, int height) {
-    }
-
-    @Override
-    public void surfaceDestroyed(SurfaceHolder holder) {
         stopDecoder();
     }
 
@@ -257,6 +252,25 @@ public class MainActivitySv extends AppCompatActivity implements OnH264DataListe
             // 从SPS中解析视频宽高
             int[] dimensions = Utils.parseSps(sps);
 
+            // 创建ImageReader获取YUV数据
+            imageThread = new HandlerThread("ImageThread");
+            imageThread.start();
+            Handler imageThreadHandler = new Handler(imageThread.getLooper());
+            imageReader = ImageReader.newInstance(dimensions[0], dimensions[1], ImageFormat.YUV_420_888, 2);
+            imageReader.setOnImageAvailableListener(reader -> {
+                Log.i(TAG, "onImageAvailable frameIndex=" + outputFrameIndex);
+                // 获取ImageReader中的图像
+                Image image = imageReader.acquireLatestImage();
+                if (image != null) {
+                    if (outputFrameIndex++ < 30) {
+                        File file = new File(getExternalFilesDir(Environment.DIRECTORY_PICTURES),
+                                "frame_" + outputFrameIndex + ".jpg");
+                        Utils.saveImageAsJpeg(image, file);
+                    }
+                    image.close();
+                }
+            }, imageThreadHandler);
+
             // 创建并配置MediaFormat
             MediaFormat format = MediaFormat.createVideoFormat(MIME_TYPE, dimensions[0], dimensions[1]);
             format.setByteBuffer("csd-0", ByteBuffer.wrap(Utils.addStartCode(sps)));
@@ -266,7 +280,7 @@ public class MainActivitySv extends AppCompatActivity implements OnH264DataListe
             // 初始化MediaCodec
             final boolean software = false; // 是否使用软件解码器
             mediaCodec = software ? Utils.findSoftwareDecoder(MIME_TYPE) : MediaCodec.createDecoderByType(MIME_TYPE);
-            mediaCodec.configure(format, surface, null, 0);
+            mediaCodec.configure(format, imageReader.getSurface(), null, 0);
             mediaCodec.start();
 
             Log.i(TAG, "startDecoder() soft=" + software + " dimensions=" + dimensions[0] + "x" + dimensions[1]);
@@ -282,6 +296,13 @@ public class MainActivitySv extends AppCompatActivity implements OnH264DataListe
             mediaCodec.stop();
             mediaCodec.release();
             mediaCodec = null;
+        }
+        if (imageReader != null) {
+            imageReader.close();
+            imageReader = null;
+        }
+        if (imageThread != null) {
+            imageThread.quitSafely();
         }
     }
 }

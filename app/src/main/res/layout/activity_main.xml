@@ -7,17 +7,37 @@
 
     <SurfaceView
             android:id="@+id/surface_view"
-            android:layout_width="match_parent"
-            android:layout_height="match_parent" />
+            android:layout_width="0dp"
+            android:layout_height="0dp"
+            app:layout_constraintEnd_toEndOf="parent"
+            app:layout_constraintTop_toTopOf="parent"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintBottom_toBottomOf="parent" />
 
-    <Button
-            android:id="@+id/btn"
-            android:text="启动 TCP 客户端"
-            android:visibility="gone"
-            android:alpha="0.5"
-            android:layout_width="wrap_content"
+    <LinearLayout
+            android:layout_width="0dp"
             android:layout_height="wrap_content"
+            android:layout_alignParentBottom="true"
+            android:orientation="horizontal"
+            android:padding="16dp"
+            android:id="@+id/linearLayout"
             app:layout_constraintBottom_toBottomOf="parent"
             app:layout_constraintStart_toStartOf="parent"
-            app:layout_constraintEnd_toEndOf="parent" />
+            app:layout_constraintEnd_toEndOf="parent">
+
+        <Button
+                android:id="@+id/video_btn"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="启动client发视频"
+                android:visibility="gone" />
+
+        <Button
+                android:id="@+id/audio_btn"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="启动client发音频"
+                android:layout_marginStart="16dp"
+                android:visibility="gone" />
+    </LinearLayout>
 </androidx.constraintlayout.widget.ConstraintLayout>

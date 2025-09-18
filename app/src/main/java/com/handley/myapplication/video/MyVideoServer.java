@@ -1,7 +1,9 @@
-package com.handley.myapplication;
+package com.handley.myapplication.video;
 
 import android.util.Log;
 import androidx.annotation.NonNull;
+import com.handley.myapplication.MediaMessageHeader;
+import com.handley.myapplication.Utils;
 import java.io.IOException;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
@@ -37,7 +39,8 @@ public class MyVideoServer {
 
             while (isRunning) {
                 Socket clientSocket = serverSocket.accept();
-                Log.i(TAG, "startServer() New client connected: " + clientSocket.getInetAddress().getHostAddress());
+                Log.i(TAG,
+                        "startServer() New video client connected: " + clientSocket.getInetAddress().getHostAddress());
 
                 // 为每个客户端创建新线程处理
                 new Thread(() -> handleClient(clientSocket)).start();
@@ -55,9 +58,10 @@ public class MyVideoServer {
 
             while ((bytesRead = clientSocket.getInputStream().read(buffer, bufferOffset, BUFFER_SIZE - bufferOffset))
                     != -1) {
-                Log.i(TAG, "handleClient: bytesRead=" + bytesRead);
                 bufferOffset += bytesRead;
                 int processed = processBuffer(buffer, bufferOffset);
+                Log.v(TAG, "handleClient() bytesRead=" + bytesRead + " processed=" + processed + " bufferOffset="
+                        + bufferOffset);
 
                 if (processed > 0) {
                     // 移除已处理数据

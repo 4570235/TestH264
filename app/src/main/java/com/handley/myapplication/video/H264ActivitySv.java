@@ -1,13 +1,16 @@
-package com.handley.myapplication;
+package com.handley.myapplication.video;
 
-import android.graphics.SurfaceTexture;
 import android.media.MediaCodec;
 import android.media.MediaFormat;
 import android.os.Bundle;
 import android.util.Log;
 import android.view.Surface;
-import android.view.TextureView;
+import android.view.SurfaceHolder;
+import android.view.SurfaceView;
 import androidx.appcompat.app.AppCompatActivity;
+import com.handley.myapplication.AssetsFileCopier;
+import com.handley.myapplication.R;
+import com.handley.myapplication.Utils;
 import java.io.BufferedInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
@@ -16,17 +19,16 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.nio.ByteBuffer;
 
-// 使用 MediaCodec 解码 test.h264 文件，渲染到 TextureView 上
-public class H264ActivityTv extends AppCompatActivity implements TextureView.SurfaceTextureListener {
+// 使用 MediaCodec 解码 test.h264 文件，渲染到 SurfaceView 上
+public class H264ActivitySv extends AppCompatActivity implements SurfaceHolder.Callback {
 
-    private static final String TAG = "H264ActivityTv";
+    private static final String TAG = Utils.TAG + "H264ActivitySv";
     private static final String MIME_TYPE = "video/avc";
     private static final int FRAME_RATE = 25; // 假设帧率
     private static final long FRAME_INTERVAL_US = 1000000 / FRAME_RATE;
 
     private MediaCodec mediaCodec;
-    private TextureView textureView;
-    private Surface outputSurface;
+    private SurfaceView surfaceView;
     private Thread decoderThread;
     private File h264File;
     private volatile boolean isRunning = false;
@@ -34,33 +36,24 @@ public class H264ActivityTv extends AppCompatActivity implements TextureView.Sur
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        setContentView(R.layout.activity_textureview_main);
-        textureView = findViewById(R.id.texture_view);
-        textureView.setSurfaceTextureListener(this);
+        setContentView(R.layout.activity_main);
+        surfaceView = findViewById(R.id.surface_view);
+        surfaceView.getHolder().addCallback(this);
         h264File = AssetsFileCopier.copyAssetToExternalFilesDir(this, "test.h264");
     }
 
-    // TextureView回调方法
     @Override
-    public void onSurfaceTextureSizeChanged(SurfaceTexture surface, int width, int height) {
+    public void surfaceCreated(SurfaceHolder holder) {
+        startDecoder(holder.getSurface());
     }
 
     @Override
-    public boolean onSurfaceTextureDestroyed(SurfaceTexture surface) {
+    public void surfaceChanged(SurfaceHolder holder, int format, int width, int height) {
+    }
+
+    @Override
+    public void surfaceDestroyed(SurfaceHolder holder) {
         stopDecoder();
-        return true;
-    }
-
-    @Override
-    public void onSurfaceTextureUpdated(SurfaceTexture surface) {
-    }
-
-    @Override
-    public void onSurfaceTextureAvailable(SurfaceTexture surfaceTexture, int width, int height) {
-        // 创建Surface用于MediaCodec输出
-        outputSurface = new Surface(surfaceTexture);
-        // 开始解码
-        startDecoder(outputSurface);
     }
 
     private void startDecoder(Surface surface) {
@@ -90,7 +83,7 @@ public class H264ActivityTv extends AppCompatActivity implements TextureView.Sur
             decoderThread = new Thread(new DecoderRunnable(h264File));
             //decoderThread.setPriority(Thread.MAX_PRIORITY); // 设置高优先级
             decoderThread.start();
-            Log.i(TAG, "startDecoder() software=" + software + " dimensions=" + dimensions[0] + "x" + dimensions[1]);
+            Log.i(TAG, "startDecoder() soft=" + software + " dimensions=" + dimensions[0] + "x" + dimensions[1]);
         } catch (IOException e) {
             e.printStackTrace();
         }
@@ -146,8 +139,7 @@ public class H264ActivityTv extends AppCompatActivity implements TextureView.Sur
                     }
 
                     int nalType = nal[0] & 0x1F;
-                    Log.d(TAG, "nalType=" + nalType + " isWaitingForIDR=" + isWaitingForIDR + " frameCounter="
-                            + frameCounter + " presentationTimeUs=" + presentationTimeUs);
+                    //Log.v(TAG, "nalType=" + nalType + " isWaitingForIDR=" + isWaitingForIDR + " frameCounter=" + frameCounter + " presentationTimeUs=" + presentationTimeUs);
                     switch (nalType) {
                         case 7: // SPS
                             isWaitingForIDR = true;
@@ -173,13 +165,13 @@ public class H264ActivityTv extends AppCompatActivity implements TextureView.Sur
                             if (isWaitingForIDR) {
                                 currentFrame.write(new byte[]{0, 0, 0, 1});
                                 currentFrame.write(nal);
-                                submitFrame(currentFrame.toByteArray(), presentationTimeUs, true);
+                                submitFrame(currentFrame.toByteArray(), presentationTimeUs);
                                 currentFrame.reset();
                                 isWaitingForIDR = false;
                                 frameCounter++;
                             } else {
                                 // 提交单个NAL单元
-                                submitSingleFrame(nal, presentationTimeUs, true);
+                                submitSingleFrame(nal, presentationTimeUs);
                                 frameCounter++;
                             }
                             break;
@@ -190,7 +182,7 @@ public class H264ActivityTv extends AppCompatActivity implements TextureView.Sur
                                 currentFrame.reset();
                                 isWaitingForIDR = false;
                             }
-                            submitSingleFrame(nal, presentationTimeUs, false);
+                            submitSingleFrame(nal, presentationTimeUs);
                             frameCounter++;
                             break;
 
@@ -249,26 +241,23 @@ public class H264ActivityTv extends AppCompatActivity implements TextureView.Sur
             }
         }
 
-        private void submitSingleFrame(byte[] nal, long pts, boolean isKeyFrame) {
+        private void submitSingleFrame(byte[] nal, long pts) {
             ByteBuffer frameData = ByteBuffer.allocate(nal.length + 4);
             frameData.putInt(0x00000001); // 统一使用4字节起始码
             frameData.put(nal);
             frameData.flip();
-            submitFrame(frameData.array(), pts, isKeyFrame);
+            submitFrame(frameData.array(), pts);
         }
 
-        private void submitFrame(byte[] frameData, long presentationTimeUs, boolean isKeyFrame) {
+        private void submitFrame(byte[] frameData, long presentationTimeUs) {
             try {
                 int inputBufferIndex = mediaCodec.dequeueInputBuffer(10000);
                 if (inputBufferIndex >= 0) {
                     ByteBuffer inputBuffer = mediaCodec.getInputBuffer(inputBufferIndex);
                     inputBuffer.clear();
                     inputBuffer.put(frameData);
-                    Log.v(TAG, "submitFrame() inputBufferIndex=" + inputBufferIndex + " frameData.length="
-                            + frameData.length + " presentationTimeUs=" + presentationTimeUs + " isKeyFrame="
-                            + isKeyFrame);
-                    mediaCodec.queueInputBuffer(inputBufferIndex, 0, frameData.length, presentationTimeUs,
-                            isKeyFrame ? MediaCodec.BUFFER_FLAG_KEY_FRAME : 0);
+
+                    mediaCodec.queueInputBuffer(inputBufferIndex, 0, frameData.length, presentationTimeUs, 0);
                 }
             } catch (Exception e) {
                 e.printStackTrace();
@@ -278,12 +267,11 @@ public class H264ActivityTv extends AppCompatActivity implements TextureView.Sur
         private void drainOutput() {
             MediaCodec.BufferInfo bufferInfo = new MediaCodec.BufferInfo();
             int outputBufferIndex;
-            //Log.v(TAG, "drainOutput() begin");
-            while ((outputBufferIndex = mediaCodec.dequeueOutputBuffer(bufferInfo, 10000)) >= 0) {
+
+            while ((outputBufferIndex = mediaCodec.dequeueOutputBuffer(bufferInfo, 0)) >= 0) {
                 // 检查渲染时间
                 long renderTimeNs = startTimeNs + bufferInfo.presentationTimeUs * 1000;
                 long currentTimeNs = System.nanoTime();
-                //Log.v(TAG, "drainOutput() renderTimeNs=" + renderTimeNs + " currentTimeNs=" + currentTimeNs);
 
                 // 如果渲染时间还没到，等待
                 if (renderTimeNs > currentTimeNs) {
@@ -296,8 +284,7 @@ public class H264ActivityTv extends AppCompatActivity implements TextureView.Sur
                         }
                     }
                 }
-                Log.v(TAG, "drainOutput() outputBufferIndex=" + outputBufferIndex + " presentationTimeUs="
-                        + bufferInfo.presentationTimeUs);
+
                 // 渲染帧
                 mediaCodec.releaseOutputBuffer(outputBufferIndex, true);
             }
@@ -317,14 +304,11 @@ public class H264ActivityTv extends AppCompatActivity implements TextureView.Sur
                     mediaCodec.releaseOutputBuffer(outputBufferIndex, true);
                 } else if (outputBufferIndex == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
                     // 格式变化处理
-                    Log.w(TAG, "signalEndOfStream INFO_OUTPUT_FORMAT_CHANGED");
                 } else if (outputBufferIndex == MediaCodec.INFO_TRY_AGAIN_LATER) {
-                    Log.w(TAG, "signalEndOfStream INFO_TRY_AGAIN_LATER");
                     break;
                 }
 
                 if ((bufferInfo.flags & MediaCodec.BUFFER_FLAG_END_OF_STREAM) != 0) {
-                    Log.w(TAG, "signalEndOfStream BUFFER_FLAG_END_OF_STREAM");
                     break;
                 }
             }

@@ -1,4 +1,4 @@
-package com.handley.myapplication;
+package com.handley.myapplication.video;
 
 import android.graphics.SurfaceTexture;
 import android.media.MediaCodec;
@@ -11,6 +11,8 @@ import android.util.Log;
 import android.view.Surface;
 import android.view.TextureView;
 import androidx.appcompat.app.AppCompatActivity;
+import com.handley.myapplication.AssetsFileCopier;
+import com.handley.myapplication.R;
 import java.io.File;
 import java.io.IOException;
 import java.nio.ByteBuffer;
