@@ -77,6 +77,7 @@ public class OpusActivityTcp extends AppCompatActivity {
         audioBtn.setOnClickListener(v -> {
             audioClient = new MyAudioClient(this);
             audioClient.start();
+            audioBtn.setEnabled(false);// 防止重复点击
         });
 
         // 创建并启动服务器

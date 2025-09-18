@@ -37,6 +37,7 @@ public class H264ActivityTvMe extends AppCompatActivity implements TextureView.S
         textureView = findViewById(R.id.texture_view);
         textureView.setSurfaceTextureListener(this);
         h264File = AssetsFileCopier.copyAssetToExternalFilesDir(this, "test.mp4");
+        Log.i(TAG, "onCreate()");
     }
 
     @Override
@@ -167,6 +168,7 @@ public class H264ActivityTvMe extends AppCompatActivity implements TextureView.S
         if (decoderThread != null) {
             decoderThread.quitSafely();
         }
+        Log.i(TAG, "onDestroy()");
     }
 
     // 其他TextureView回调方法

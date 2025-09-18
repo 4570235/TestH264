@@ -2,6 +2,7 @@ package com.handley.myapplication.video;
 
 import android.content.Context;
 import android.util.Log;
+import com.handley.myapplication.common.AssetsFileCopier;
 import com.handley.myapplication.common.Utils;
 import java.io.DataOutputStream;
 import java.io.File;
@@ -21,7 +22,7 @@ public class MyVideoClient {
 
     public void sendH264File() {
         new Thread(() -> {
-            File file = new File(context.getExternalFilesDir(null), "dump.h264");
+            File file = AssetsFileCopier.copyAssetToExternalFilesDir(context, "dump.h264");
             if (!file.exists()) {
                 Log.e(TAG, "File not found: " + file.getAbsolutePath());
                 return;

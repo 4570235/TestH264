@@ -14,7 +14,6 @@ import android.view.View;
 import android.widget.Button;
 import androidx.appcompat.app.AppCompatActivity;
 import com.handley.myapplication.R;
-import com.handley.myapplication.common.AssetsFileCopier;
 import com.handley.myapplication.common.Utils;
 import com.handley.myapplication.video.MyVideoServer.OnH264DataListener;
 import java.io.ByteArrayInputStream;
@@ -31,6 +30,7 @@ public class H264ActivityTcpYuv extends AppCompatActivity implements OnH264DataL
     private static final String MIME_TYPE = "video/avc";
     private static final int FRAME_RATE = 25; // 假设帧率
     private final MyVideoServer myVideoServer = new MyVideoServer(this);
+    private final MyVideoClient myVideoClient = new MyVideoClient(this);
     private int outputFrameIndex = 0;
     private long startTime = Long.MIN_VALUE; // 播放开始时间（毫秒）
     private MediaCodec mediaCodec;
@@ -50,12 +50,11 @@ public class H264ActivityTcpYuv extends AppCompatActivity implements OnH264DataL
         videoBtn.setVisibility(View.VISIBLE);
         audioBtn.setVisibility(View.GONE);
 
-        // 将Client要发送的文件复制到外部存储目录
-        AssetsFileCopier.copyAssetToExternalFilesDir(this, "dump.h264");
-
         // 点击启动客户端发送文件。
-        videoBtn.setOnClickListener(v -> new MyVideoClient(H264ActivityTcpYuv.this).sendH264File());
-
+        videoBtn.setOnClickListener(v -> {
+            myVideoClient.sendH264File();
+            videoBtn.setEnabled(false);// 防止重复点击
+        });
         // 启动服务器。
         myVideoServer.start();
         Log.i(TAG, "onCreate");
@@ -64,9 +63,9 @@ public class H264ActivityTcpYuv extends AppCompatActivity implements OnH264DataL
     @Override
     protected void onDestroy() {
         super.onDestroy();
-        Log.i(TAG, "onDestroy");
         myVideoServer.stop();
         stopDecoder();
+        Log.i(TAG, "onDestroy");
     }
 
     @Override
