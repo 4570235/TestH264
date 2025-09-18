@@ -83,7 +83,7 @@ public class MainActivity extends AppCompatActivity implements OnH264DataListene
         }
 
         // 控制播放速度
-        controlPlaybackSpeed(pts);
+        controlInputSpeed(pts);
 
         // 将字节数组包装成 InputStream，以便复用 H264StreamReader 的逻辑
         try (InputStream is = new ByteArrayInputStream(data)) {
@@ -163,20 +163,20 @@ public class MainActivity extends AppCompatActivity implements OnH264DataListene
         }
     }
 
-    // 控制播放速度
-    private void controlPlaybackSpeed(long pts) {
+    // 控制输入速度
+    private void controlInputSpeed(long pts) {
         // 计算当前帧应该显示的时间点
         long targetTime = startTime + pts;
         // 计算当前系统时间
         long currentTime = System.nanoTime() / 1000000;
         // 计算需要等待的时间
-        long sleepTime = targetTime - currentTime;
+        long sleepTime = targetTime - currentTime - 16; // 考虑解码时间，提前一点时间送入
         Log.v(TAG,
                 "controlPlaybackSpeed pts=" + pts + " targetTime=" + targetTime + " currentTime=" + currentTime
                         + " sleepTime=" + sleepTime);
 
-        // 如果播放太快，等待一段时间
-        if (sleepTime > 1000) { // 差异大于1毫秒才等待
+        // 如果输入太快，等待一段时间
+        if (sleepTime > 1) {
             try {
                 Thread.sleep(sleepTime);
             } catch (InterruptedException e) {
@@ -224,28 +224,31 @@ public class MainActivity extends AppCompatActivity implements OnH264DataListene
         MediaCodec.BufferInfo bufferInfo = new MediaCodec.BufferInfo();
         int outputBufferIndex;
 
-        while ((outputBufferIndex = mediaCodec.dequeueOutputBuffer(bufferInfo, 0)) >= 0) {
-            // 检查渲染时间
-            long renderTime = startTime + bufferInfo.presentationTimeUs;
-            long currentTime = System.nanoTime() / 1000000;
-            Log.d(TAG,
-                    "drainOutput() pts=" + bufferInfo.presentationTimeUs + " renderTime=" + renderTime + " currentTime="
-                            + currentTime + " sleepTime=" + (renderTime - currentTime));
-
-            // 如果渲染时间还没到，等待
-            if (renderTime > currentTime) {
-                long sleepTime = renderTime - currentTime;
-                if (sleepTime > 1) {
-                    try {
-                        Thread.sleep(sleepTime);
-                    } catch (InterruptedException e) {
-                        Thread.currentThread().interrupt();
-                    }
-                }
-            }
+        while ((outputBufferIndex = mediaCodec.dequeueOutputBuffer(bufferInfo, 10000)) >= 0) {
+            controlOutputSpeed(bufferInfo.presentationTimeUs);
 
             // 渲染帧
             mediaCodec.releaseOutputBuffer(outputBufferIndex, true);
+        }
+    }
+
+    // 控制输出速度
+    private void controlOutputSpeed(long pts) {
+        // 检查渲染时间
+        long renderTime = startTime + pts;
+        long currentTime = System.nanoTime() / 1000000;
+        long sleepTime = renderTime - currentTime - 2; // 考虑处理时间，提前一点时间输出
+        Log.d(TAG,
+                "drainOutput() pts=" + pts + " renderTime=" + renderTime + " currentTime=" + currentTime + " sleepTime="
+                        + sleepTime);
+
+        // 如果输出太快，等待一段时间
+        if (sleepTime > 1) {
+            try {
+                Thread.sleep(sleepTime);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
         }
     }
 

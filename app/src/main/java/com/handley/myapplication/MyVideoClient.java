@@ -30,7 +30,7 @@ public class MyVideoClient {
                     DataOutputStream outputStream = new DataOutputStream(socket.getOutputStream());
                     FileInputStream fileInputStream = new FileInputStream(file)) {
 
-                Log.i(TAG, "Client connected to server. Starting file transfer...");
+                Log.i(TAG, "connected to server, start sendH264File");
 
                 // 添加文件传输逻辑
                 byte[] buffer = new byte[1024 * 1024];

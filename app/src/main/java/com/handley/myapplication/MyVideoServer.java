@@ -12,7 +12,7 @@ import java.util.Arrays;
 public class MyVideoServer {
 
     static final String SERVER_IP = "127.0.0.1";
-    static final int SERVER_PORT = 24443;//23334;
+    static final int SERVER_PORT = 23334;
     private static final String TAG = Utils.TAG + "MyVideoServer";
     private static final int BUFFER_SIZE = 1024 * 1024; // 1MB
     private final OnH264DataListener listener;
@@ -33,17 +33,17 @@ public class MyVideoServer {
             serverSocket.setReuseAddress(true);
             serverSocket.bind(new InetSocketAddress(InetAddress.getByName(SERVER_IP), SERVER_PORT));
 
-            Log.i(TAG, "TCP server started, listening on port: " + SERVER_PORT);
+            Log.i(TAG, "startServer() listening on port: " + SERVER_PORT);
 
             while (isRunning) {
                 Socket clientSocket = serverSocket.accept();
-                Log.i(TAG, "New client connected: " + clientSocket.getInetAddress().getHostAddress());
+                Log.i(TAG, "startServer() New client connected: " + clientSocket.getInetAddress().getHostAddress());
 
                 // 为每个客户端创建新线程处理
                 new Thread(() -> handleClient(clientSocket)).start();
             }
         } catch (IOException e) {
-            Log.e(TAG, "MyVideoServer error: " + e.getMessage());
+            Log.e(TAG, "startServer() error: " + e.getMessage());
         }
     }
 
@@ -55,6 +55,7 @@ public class MyVideoServer {
 
             while ((bytesRead = clientSocket.getInputStream().read(buffer, bufferOffset, BUFFER_SIZE - bufferOffset))
                     != -1) {
+                Log.i(TAG, "handleClient: bytesRead=" + bytesRead);
                 bufferOffset += bytesRead;
                 int processed = processBuffer(buffer, bufferOffset);
 
