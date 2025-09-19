@@ -1,0 +1,7 @@
+
+OpusActivityTcp.java 演示了音频流 tcp 接收和解码播放。 支持启动tcp客户端发送dump 的文件流，方便本地测试。
+
+H264ActivityTcpSv.java 演示了视频流 tcp 接收和解码播放。支持启动tcp客户端发送dump 的文件流，方便本地测试。
+H264ActivityTcpYuv.java 演示了如何解码为 yuv 格式的数据，保存为 jpg 文件。
+
+其他 Activity 为基础解码播放功能的设备兼容性验证，和业务无关，可以不看。

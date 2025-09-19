@@ -1,6 +1,7 @@
 说明
-test.h264 和 test.opus 为本地 .mp4 文件用ffmpeg 命令转出来的。
+test.h264 和 test.opus 为本地 test.mp4 文件用ffmpeg 命令转出来的。
 dump.h264 和 dump.opus 为 oko 给的含私有协议头的流文件。
+fake-dump.opus 为我自己构造的含私有协议头的流文件。
 
 转换命令
 ffmpeg -i input.mp4 -vn -c:a libopus -b:a 64k -vbr on -compression_level 10 -ac 2 -ar 48000 output.opus

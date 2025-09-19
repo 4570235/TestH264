@@ -14,23 +14,27 @@ import androidx.appcompat.app.AppCompatActivity;
 
 import com.handley.myapplication.R;
 import com.handley.myapplication.common.MediaMessageHeader;
+import com.handley.myapplication.common.MyFrame;
 import com.handley.myapplication.common.Utils;
+import com.handley.myapplication.tcp.MyClient;
+import com.handley.myapplication.tcp.MyServer;
 
 import java.nio.ByteBuffer;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.TimeUnit;
 
 // 演示 MyAudioClient 向 MyAudioServer 发送(含私有协议头的)文件数据流，解码播放。
 public class OpusActivityTcp extends AppCompatActivity {
 
     private static final String TAG = Utils.TAG + "OpusActivityTcp";
-    private final BlockingQueue<AudioFrame> frameQueue = new LinkedBlockingQueue<>(50); // 缓冲队列
+    private final BlockingQueue<MyFrame> frameQueue = new LinkedBlockingQueue<>(50); // 帧缓冲队列
     private Button videoBtn, audioBtn;
-    private MyAudioServer audioServer;
-    private MyAudioClient audioClient;
+    private MyServer myServer;
+    private MyClient myClient;
     private long startTime = Long.MIN_VALUE; // 播放开始时间（毫秒）
-    private Thread playbackThread;
-    private volatile boolean isPlaying = false;
+    private Thread decodeThread;
+    private volatile boolean decodeThreadRunning = false;
     private AudioTrack audioTrack;
     private MediaCodec mediaCodec;
 
@@ -47,7 +51,7 @@ public class OpusActivityTcp extends AppCompatActivity {
 
         initTcp();
 
-        startPlaybackThread();
+        startDecodeThread();
 
         Log.i(TAG, "onCreate()");
     }
@@ -74,43 +78,47 @@ public class OpusActivityTcp extends AppCompatActivity {
     }
 
     private void initTcp() {
+        final int port = 23333;
+
         // 创建并启动客户端
         audioBtn.setOnClickListener(v -> {
-            audioClient = new MyAudioClient(this);
-            audioClient.start();
+            myClient = new MyClient(this, "fake-dump.opus", port);
+            myClient.start();
             audioBtn.setEnabled(false);// 防止重复点击
         });
 
         // 创建并启动服务器
-        audioServer = new MyAudioServer((header, frameData) -> {
+        myServer = new MyServer((frame) -> {
             // 处理接收到的帧数据
-            Log.d(TAG, "Received frame: type=" + header.type + ", size=" + frameData.length + ", timestamp=" + header.timestamp);
+            Log.d(TAG, "Received frame: type=" + frame.header.type + ", size=" + frame.header.dataLen + ", timestamp=" + frame.header.timestamp);
+            if (frame.header.type != MediaMessageHeader.OPUS) return;
 
+            frame.header.timestamp /= 1000;//转换为毫秒
             if (startTime == Long.MIN_VALUE) {
                 long currentTime = System.nanoTime() / 1000000;
-                startTime = currentTime - header.timestamp;
-                Log.i(TAG, "onFrameReceived init currentTime=" + currentTime + " pts=" + header.timestamp + " startTime=" + startTime);
+                startTime = currentTime - frame.header.timestamp;
+                Log.i(TAG, "onFrameReceived init currentTime=" + currentTime + " pts=" + frame.header.timestamp + " startTime=" + startTime);
             }
 
             // 控制速度：一帧 20ms，队列 50 个数据，1000ms。控制一半水位。
-            controlSpeed(header.timestamp, 500);
+            controlSpeed(frame.header.timestamp, 500);
 
             // 快速将帧存入队列（非阻塞）
-            boolean offer = frameQueue.offer(new AudioFrame(header, frameData));
+            boolean offer = frameQueue.offer(frame);
             if (!offer) {
                 Log.w(TAG, "frameQueue.offer() failed");
             }
-        });
-        audioServer.start();
+        }, port);
+        myServer.start();
     }
 
-    // 启动播放线程
-    private void startPlaybackThread() {
-        isPlaying = true;
-        playbackThread = new Thread(() -> {
-            while (isPlaying && !Thread.interrupted()) {
+    // 启动解码播放线程
+    private void startDecodeThread() {
+        decodeThreadRunning = true;
+        decodeThread = new Thread(() -> {
+            while (decodeThreadRunning && !Thread.interrupted()) {
                 try {
-                    AudioFrame frame = frameQueue.poll(50, java.util.concurrent.TimeUnit.MILLISECONDS);
+                    MyFrame frame = frameQueue.poll(50, TimeUnit.MILLISECONDS);
                     if (frame == null) {
                         continue;
                     }
@@ -119,7 +127,7 @@ public class OpusActivityTcp extends AppCompatActivity {
                     controlSpeed(frame.header.timestamp, 10);
 
                     // 2. 解码Opus数据
-                    byte[] pcmData = decodeOpus(frame.frameData, frame.header.timestamp);
+                    byte[] pcmData = decodeData(frame.frameData, frame.header.timestamp);
                     if (pcmData.length == 0) {
                         continue;
                     }
@@ -133,12 +141,12 @@ public class OpusActivityTcp extends AppCompatActivity {
                     Log.e(TAG, "Playback error: " + e.getMessage());
                 }
             }
-        }, "AudioPlaybackThread");
-        playbackThread.start();
+        }, "DecodeThread");
+        decodeThread.start();
     }
 
     // 播放线程中的解码方法
-    private byte[] decodeOpus(byte[] opusData, long pts) {
+    private byte[] decodeData(byte[] data, long pts) {
         if (mediaCodec == null) {
             return new byte[0];
         }
@@ -149,8 +157,8 @@ public class OpusActivityTcp extends AppCompatActivity {
         int inputBufferIndex = mediaCodec.dequeueInputBuffer(10000);
         if (inputBufferIndex >= 0) {
             ByteBuffer buffer = inputBuffers[inputBufferIndex];
-            buffer.put(opusData);
-            mediaCodec.queueInputBuffer(inputBufferIndex, 0, opusData.length, pts, 0);
+            buffer.put(data);
+            mediaCodec.queueInputBuffer(inputBufferIndex, 0, data.length, pts, 0);
         }
 
         // 从解码器获取输出
@@ -174,55 +182,6 @@ public class OpusActivityTcp extends AppCompatActivity {
         return new byte[0];
     }
 
-    private void releaseAudioResources() {
-        // 停止播放线程
-        isPlaying = false;
-        if (playbackThread != null) {
-            playbackThread.interrupt();
-            try {
-                playbackThread.join(200);
-            } catch (InterruptedException ignored) {
-            }
-        }
-
-        // 释放AudioTrack
-        if (audioTrack != null) {
-            try {
-                audioTrack.stop();
-                audioTrack.release();
-                audioTrack = null;
-            } catch (Exception e) {
-                Log.w(TAG, "Error releasing AudioTrack: " + e.getMessage());
-            }
-        }
-
-        // 释放Opus解码器
-        if (mediaCodec != null) {
-            mediaCodec.stop();
-            mediaCodec.release();
-            mediaCodec = null;
-        }
-
-        Log.i(TAG, "releaseAudioResources()");
-    }
-
-    @Override
-    protected void onDestroy() {
-        super.onDestroy();
-        audioServer.stop();
-        audioClient.stop();
-        isPlaying = false; // 停止播放线程
-        if (playbackThread != null) {
-            playbackThread.interrupt();
-            try {
-                playbackThread.join(200);
-            } catch (InterruptedException ignored) {
-            }
-        }
-        releaseAudioResources();
-        Log.i(TAG, "onDestroy()");
-    }
-
     // 控制速度(pts 时间戳ms，ahead 提前多少ms)
     private void controlSpeed(long pts, long ahead) {
         long targetTime = startTime + pts;
@@ -240,15 +199,44 @@ public class OpusActivityTcp extends AppCompatActivity {
         }
     }
 
-    // 音频帧封装类
-    private static class AudioFrame {
+    @Override
+    protected void onDestroy() {
+        super.onDestroy();
 
-        final MediaMessageHeader header;
-        final byte[] frameData;
+        // 停止 tcp
+        myServer.stop();
+        myClient.stop();
 
-        AudioFrame(MediaMessageHeader header, byte[] frameData) {
-            this.header = header;
-            this.frameData = frameData;
+
+        // 释放解码器
+        if (mediaCodec != null) {
+            mediaCodec.stop();
+            mediaCodec.release();
+            mediaCodec = null;
         }
+
+        // 释放AudioTrack
+        if (audioTrack != null) {
+            try {
+                audioTrack.stop();
+                audioTrack.release();
+                audioTrack = null;
+            } catch (Exception e) {
+                Log.w(TAG, "Error releasing AudioTrack: " + e.getMessage());
+            }
+        }
+
+        // 停止线程
+        decodeThreadRunning = false;
+        if (decodeThread != null) {
+            decodeThread.interrupt();
+            try {
+                decodeThread.join(200);
+            } catch (InterruptedException ignored) {
+            }
+        }
+
+        Log.i(TAG, "onDestroy()");
     }
+
 }
