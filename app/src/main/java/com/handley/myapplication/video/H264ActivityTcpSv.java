@@ -89,7 +89,7 @@ public class H264ActivityTcpSv extends AppCompatActivity implements SurfaceHolde
             } catch (InterruptedException e) {
                 throw new RuntimeException(e);
             }
-        }, port);
+        }, port, "server-dump.h264", this);
         myServer.start();
     }
 

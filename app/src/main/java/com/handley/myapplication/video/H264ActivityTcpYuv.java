@@ -93,7 +93,7 @@ public class H264ActivityTcpYuv extends AppCompatActivity {
             } catch (InterruptedException e) {
                 throw new RuntimeException(e);
             }
-        }, port);
+        }, port, null, this);
         myServer.start();
     }
 
