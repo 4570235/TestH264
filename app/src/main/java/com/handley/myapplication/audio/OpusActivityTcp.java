@@ -9,16 +9,18 @@ import android.os.Bundle;
 import android.util.Log;
 import android.view.View;
 import android.widget.Button;
+
 import androidx.appcompat.app.AppCompatActivity;
+
 import com.handley.myapplication.R;
 import com.handley.myapplication.common.MediaMessageHeader;
 import com.handley.myapplication.common.Utils;
+
 import java.nio.ByteBuffer;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
 
 // 演示 MyAudioClient 向 MyAudioServer 发送(含私有协议头的)文件数据流，解码播放。
-
 public class OpusActivityTcp extends AppCompatActivity {
 
     private static final String TAG = Utils.TAG + "OpusActivityTcp";
@@ -30,7 +32,7 @@ public class OpusActivityTcp extends AppCompatActivity {
     private Thread playbackThread;
     private volatile boolean isPlaying = false;
     private AudioTrack audioTrack;
-    private MediaCodec codec; // Opus解码器实例
+    private MediaCodec mediaCodec;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -56,16 +58,15 @@ public class OpusActivityTcp extends AppCompatActivity {
         try {
             MediaFormat format = Utils.createAudioFormat();
             String mime = format.getString(MediaFormat.KEY_MIME);
-            codec = MediaCodec.createDecoderByType(mime);
-            codec.configure(format, null, null, 0);
-            codec.start();
+            mediaCodec = MediaCodec.createDecoderByType(mime);
+            mediaCodec.configure(format, null, null, 0);
+            mediaCodec.start();
 
             int sampleRate = format.getInteger(MediaFormat.KEY_SAMPLE_RATE);
             int channelCount = format.getInteger(MediaFormat.KEY_CHANNEL_COUNT);
             int channelConfig = (channelCount == 1) ? AudioFormat.CHANNEL_OUT_MONO : AudioFormat.CHANNEL_OUT_STEREO;
             int bufferSize = AudioTrack.getMinBufferSize(sampleRate, channelConfig, AudioFormat.ENCODING_PCM_16BIT);
-            audioTrack = new AudioTrack(AudioManager.STREAM_MUSIC, sampleRate, channelConfig,
-                    AudioFormat.ENCODING_PCM_16BIT, bufferSize, AudioTrack.MODE_STREAM);
+            audioTrack = new AudioTrack(AudioManager.STREAM_MUSIC, sampleRate, channelConfig, AudioFormat.ENCODING_PCM_16BIT, bufferSize, AudioTrack.MODE_STREAM);
             audioTrack.play();
         } catch (Exception e) {
             throw new RuntimeException("initMedia() failed", e);
@@ -83,17 +84,16 @@ public class OpusActivityTcp extends AppCompatActivity {
         // 创建并启动服务器
         audioServer = new MyAudioServer((header, frameData) -> {
             // 处理接收到的帧数据
-            Log.d(TAG, "Received frame: type=" + header.type + ", size=" + frameData.length + ", timestamp="
-                    + header.timestamp);
+            Log.d(TAG, "Received frame: type=" + header.type + ", size=" + frameData.length + ", timestamp=" + header.timestamp);
 
             if (startTime == Long.MIN_VALUE) {
                 long currentTime = System.nanoTime() / 1000000;
                 startTime = currentTime - header.timestamp;
-                Log.i(TAG, "onFrameReceived init currentTime=" + currentTime + " pts=" + header.timestamp
-                        + " startTime=" + startTime);
+                Log.i(TAG, "onFrameReceived init currentTime=" + currentTime + " pts=" + header.timestamp + " startTime=" + startTime);
             }
 
-            controlSpeed(header.timestamp, 500);// 一帧 20ms，队列 50 个数据，1000ms。控制一半水位。
+            // 控制速度：一帧 20ms，队列 50 个数据，1000ms。控制一半水位。
+            controlSpeed(header.timestamp, 500);
 
             // 快速将帧存入队列（非阻塞）
             boolean offer = frameQueue.offer(new AudioFrame(header, frameData));
@@ -116,7 +116,7 @@ public class OpusActivityTcp extends AppCompatActivity {
                     }
 
                     // 1. 控制解码时机（输入速度）
-                    controlSpeed(frame.header.timestamp, 2);
+                    controlSpeed(frame.header.timestamp, 10);
 
                     // 2. 解码Opus数据
                     byte[] pcmData = decodeOpus(frame.frameData, frame.header.timestamp);
@@ -139,36 +139,36 @@ public class OpusActivityTcp extends AppCompatActivity {
 
     // 播放线程中的解码方法
     private byte[] decodeOpus(byte[] opusData, long pts) {
-        if (codec == null) {
+        if (mediaCodec == null) {
             return new byte[0];
         }
 
-        ByteBuffer[] inputBuffers = codec.getInputBuffers();
-        ByteBuffer[] outputBuffers = codec.getOutputBuffers();
+        ByteBuffer[] inputBuffers = mediaCodec.getInputBuffers();
+        ByteBuffer[] outputBuffers = mediaCodec.getOutputBuffers();
         MediaCodec.BufferInfo info = new MediaCodec.BufferInfo();
-        int inputBufferIndex = codec.dequeueInputBuffer(10000);
+        int inputBufferIndex = mediaCodec.dequeueInputBuffer(10000);
         if (inputBufferIndex >= 0) {
             ByteBuffer buffer = inputBuffers[inputBufferIndex];
             buffer.put(opusData);
-            codec.queueInputBuffer(inputBufferIndex, 0, opusData.length, pts, 0);
+            mediaCodec.queueInputBuffer(inputBufferIndex, 0, opusData.length, pts, 0);
         }
 
         // 从解码器获取输出
-        int outputBufferIndex = codec.dequeueOutputBuffer(info, 10000);
+        int outputBufferIndex = mediaCodec.dequeueOutputBuffer(info, 10000);
         if (outputBufferIndex >= 0) {
             ByteBuffer buffer = outputBuffers[outputBufferIndex];
             byte[] pcmData = new byte[info.size];
             buffer.get(pcmData);
             buffer.clear();
-            codec.releaseOutputBuffer(outputBufferIndex, false);
+            mediaCodec.releaseOutputBuffer(outputBufferIndex, false);
             return pcmData;
         } else if (outputBufferIndex == MediaCodec.INFO_OUTPUT_BUFFERS_CHANGED) {
             // 处理缓冲区变化
-            outputBuffers = codec.getOutputBuffers();
+            outputBuffers = mediaCodec.getOutputBuffers();
             Log.d(TAG, "Output buffers changed");
         } else if (outputBufferIndex == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
             // 处理格式变化
-            MediaFormat newFormat = codec.getOutputFormat();
+            MediaFormat newFormat = mediaCodec.getOutputFormat();
             Log.d(TAG, "Output format changed: " + newFormat);
         }
         return new byte[0];
@@ -197,10 +197,10 @@ public class OpusActivityTcp extends AppCompatActivity {
         }
 
         // 释放Opus解码器
-        if (codec != null) {
-            codec.stop();
-            codec.release();
-            codec = null;
+        if (mediaCodec != null) {
+            mediaCodec.stop();
+            mediaCodec.release();
+            mediaCodec = null;
         }
 
         Log.i(TAG, "releaseAudioResources()");
@@ -223,15 +223,14 @@ public class OpusActivityTcp extends AppCompatActivity {
         Log.i(TAG, "onDestroy()");
     }
 
-    // 控制输入速度
-    private void controlSpeed(long pts, long workTime) {
+    // 控制速度(pts 时间戳ms，ahead 提前多少ms)
+    private void controlSpeed(long pts, long ahead) {
         long targetTime = startTime + pts;
         long currentTime = System.nanoTime() / 1000000;
-        long sleepTime = targetTime - currentTime - workTime;
-        Log.v(TAG, "controlSpeed pts=" + pts + " workTime=" + workTime + " targetTime=" + targetTime + " currentTime="
-                + currentTime + " sleepTime=" + sleepTime);
+        long sleepTime = targetTime - currentTime - ahead;
+        Log.v(TAG, "controlSpeed pts=" + pts + " ahead=" + ahead + " targetTime=" + targetTime + " currentTime=" + currentTime + " sleepTime=" + sleepTime);
 
-        // 如果输入太快，等待一段时间
+        // 如果太快，等待一段时间
         if (sleepTime > 1) {
             try {
                 Thread.sleep(sleepTime);

@@ -10,10 +10,13 @@ import android.view.SurfaceHolder.Callback;
 import android.view.SurfaceView;
 import android.view.View;
 import android.widget.Button;
+
 import androidx.appcompat.app.AppCompatActivity;
+
 import com.handley.myapplication.R;
 import com.handley.myapplication.common.Utils;
 import com.handley.myapplication.video.MyVideoServer.OnH264DataListener;
+
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -24,13 +27,12 @@ import java.nio.ByteBuffer;
 public class H264ActivityTcpSv extends AppCompatActivity implements OnH264DataListener, Callback {
 
     private static final String TAG = Utils.TAG + "H264ActivityTcpSv";
-    private static final String MIME_TYPE = "video/avc";
-    private static final int FRAME_RATE = 25; // 假设帧率
     private final MyVideoServer myVideoServer = new MyVideoServer(this);
     private final MyVideoClient myVideoClient = new MyVideoClient(this);
     private long startTime = Long.MIN_VALUE; // 播放开始时间（毫秒）
     private MediaCodec mediaCodec;
     private SurfaceView surfaceView;
+    private Button videoBtn, audioBtn;
     private Surface surface;
     private byte[] sps = null;
     private byte[] pps = null;
@@ -42,11 +44,17 @@ public class H264ActivityTcpSv extends AppCompatActivity implements OnH264DataLi
         setContentView(R.layout.activity_main);
         surfaceView = findViewById(R.id.surface_view);
         surfaceView.getHolder().addCallback(this);
-        Button videoBtn = findViewById(R.id.video_btn);
-        Button audioBtn = findViewById(R.id.audio_btn);
+        videoBtn = findViewById(R.id.video_btn);
+        audioBtn = findViewById(R.id.audio_btn);
         videoBtn.setVisibility(View.VISIBLE);
         audioBtn.setVisibility(View.GONE);
 
+        initTcp();
+
+        Log.i(TAG, "onCreate");
+    }
+
+    private void initTcp() {
         // 点击启动客户端发送文件。
         videoBtn.setOnClickListener(v -> {
             myVideoClient.sendH264File();
@@ -55,8 +63,6 @@ public class H264ActivityTcpSv extends AppCompatActivity implements OnH264DataLi
 
         // 启动服务器。
         myVideoServer.start();
-
-        Log.i(TAG, "onCreate");
     }
 
     @Override
@@ -88,8 +94,8 @@ public class H264ActivityTcpSv extends AppCompatActivity implements OnH264DataLi
             Log.i(TAG, "onDataReceived init currentTime=" + currentTime + " pts=" + pts + " startTime=" + startTime);
         }
 
-        // 控制播放速度
-        controlInputSpeed(pts);
+        // 控制速度
+        controlSpeed(pts, 15);
 
         // 将字节数组包装成 InputStream，以便复用 H264StreamReader 的逻辑
         try (InputStream is = new ByteArrayInputStream(data)) {
@@ -169,19 +175,14 @@ public class H264ActivityTcpSv extends AppCompatActivity implements OnH264DataLi
         }
     }
 
-    // 控制输入速度
-    private void controlInputSpeed(long pts) {
-        // 计算当前帧应该显示的时间点
+    // 控制速度(pts 时间戳ms，ahead 提前多少ms)
+    private void controlSpeed(long pts, long ahead) {
         long targetTime = startTime + pts;
-        // 计算当前系统时间
         long currentTime = System.nanoTime() / 1000000;
-        // 计算需要等待的时间
-        long sleepTime = targetTime - currentTime - 16; // 考虑解码时间，提前一点时间送入
-        Log.v(TAG,
-                "controlPlaybackSpeed pts=" + pts + " targetTime=" + targetTime + " currentTime=" + currentTime
-                        + " sleepTime=" + sleepTime);
+        long sleepTime = targetTime - currentTime - ahead;
+        Log.v(TAG, "controlSpeed pts=" + pts + " ahead=" + ahead + " targetTime=" + targetTime + " currentTime=" + currentTime + " sleepTime=" + sleepTime);
 
-        // 如果输入太快，等待一段时间
+        // 如果太快，等待一段时间
         if (sleepTime > 1) {
             try {
                 Thread.sleep(sleepTime);
@@ -191,7 +192,11 @@ public class H264ActivityTcpSv extends AppCompatActivity implements OnH264DataLi
         }
     }
 
-    private void submitSingleFrame(byte[] nal, long pts) {
+    private synchronized void submitSingleFrame(byte[] nal, long pts) {
+        if (mediaCodec == null) {
+            Log.e(TAG, "submitSingleFrame: mediaCodec is null");
+            return;
+        }
         ByteBuffer frameData = ByteBuffer.allocate(nal.length + 4);
         frameData.putInt(0x00000001); // 统一使用4字节起始码
         frameData.put(nal);
@@ -231,30 +236,10 @@ public class H264ActivityTcpSv extends AppCompatActivity implements OnH264DataLi
         int outputBufferIndex;
 
         while ((outputBufferIndex = mediaCodec.dequeueOutputBuffer(bufferInfo, 10000)) >= 0) {
-            controlOutputSpeed(bufferInfo.presentationTimeUs);
-
+            // 3. 控制播放时机（输出速度）
+            controlSpeed(bufferInfo.presentationTimeUs, 2);
             // 渲染帧
             mediaCodec.releaseOutputBuffer(outputBufferIndex, true);
-        }
-    }
-
-    // 控制输出速度
-    private void controlOutputSpeed(long pts) {
-        // 检查渲染时间
-        long renderTime = startTime + pts;
-        long currentTime = System.nanoTime() / 1000000;
-        long sleepTime = renderTime - currentTime - 2; // 考虑处理时间，提前一点时间输出
-        Log.d(TAG,
-                "drainOutput() pts=" + pts + " renderTime=" + renderTime + " currentTime=" + currentTime + " sleepTime="
-                        + sleepTime);
-
-        // 如果输出太快，等待一段时间
-        if (sleepTime > 1) {
-            try {
-                Thread.sleep(sleepTime);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-            }
         }
     }
 
@@ -264,6 +249,8 @@ public class H264ActivityTcpSv extends AppCompatActivity implements OnH264DataLi
             int[] dimensions = Utils.parseSps(sps);
 
             // 创建并配置MediaFormat
+            String MIME_TYPE = "video/avc";
+            int FRAME_RATE = 25; // 假设帧率
             MediaFormat format = MediaFormat.createVideoFormat(MIME_TYPE, dimensions[0], dimensions[1]);
             format.setByteBuffer("csd-0", ByteBuffer.wrap(Utils.addStartCode(sps)));
             format.setByteBuffer("csd-1", ByteBuffer.wrap(Utils.addStartCode(pps)));
