@@ -5,8 +5,6 @@ import android.content.Context;
 import android.text.TextUtils;
 import android.util.Log;
 
-import com.handley.myapplication.common.MediaMessageHeader;
-import com.handley.myapplication.common.MyFrame;
 import com.handley.myapplication.common.MyFrameCallback;
 import com.handley.myapplication.common.Utils;
 
@@ -22,18 +20,16 @@ import java.net.Socket;
 
 public class MyServer {
     private static final String TAG = Utils.TAG + "MyServer";
-    private final MyFrameCallback myFrameCallback;
     private final int port;
-    private final String outputFileName;  // 新增：输出文件路径
+    private final String outputFileName;
     private final Context context;
     private ServerSocket serverSocket;
     private Thread serverThread;
     private volatile boolean isRunning = false;
-    private OutputStream fileOutputStream;  // 新增：文件输出流
+    private OutputStream fileOutputStream;
 
-    // 修改构造方法，增加文件路径参数
+    // 移除MyFrameCallback参数
     public MyServer(MyFrameCallback callback, int port, String outputFileName, Context context) {
-        this.myFrameCallback = callback;
         this.port = port;
         this.outputFileName = outputFileName;
         this.context = context.getApplicationContext();
@@ -53,7 +49,7 @@ public class MyServer {
                 Log.i(TAG, "Output file opened: " + dumpFile.getAbsolutePath());
             } catch (IOException e) {
                 Log.e(TAG, "Error opening output file: " + e.getMessage());
-                fileOutputStream = null; // 确保为null避免后续操作
+                fileOutputStream = null;
             }
         }
 
@@ -80,7 +76,7 @@ public class MyServer {
                 Log.e(TAG, "Server error: " + e.getMessage());
             } finally {
                 closeServerSocket();
-                closeFileOutputStream(); // 确保关闭文件流
+                closeFileOutputStream();
             }
         });
 
@@ -88,60 +84,28 @@ public class MyServer {
     }
 
     private void processClientData(BufferedInputStream bis) throws IOException {
-        byte[] headerBuffer = new byte[MediaMessageHeader.SIZE];
+        byte[] buffer = new byte[8192]; // 8KB缓冲区
         int bytesRead;
 
-        while (isRunning) {
-            // 1. 读取帧头
-            bytesRead = bis.read(headerBuffer, 0, MediaMessageHeader.SIZE);
-            if (bytesRead != MediaMessageHeader.SIZE) {
-                if (bytesRead == -1) {
-                    Log.i(TAG, "End of stream reached");
-                } else {
-                    Log.w(TAG, "Incomplete header: " + bytesRead + " bytes");
-                }
-                break;
-            }
-
-            // 2. 解析帧头
-            MediaMessageHeader header = MediaMessageHeader.parse(headerBuffer);
-            if (header.magic != MediaMessageHeader.MAGIC) {
-                Log.e(TAG, "Invalid magic number: 0x" + Integer.toHexString(header.magic));
-                break;
-            }
-
-            // 3. 读取帧数据
-            byte[] frameData = new byte[header.dataLen];
-            bytesRead = bis.read(frameData, 0, header.dataLen);
-            if (bytesRead != header.dataLen) {
-                Log.e(TAG, "Incomplete frame data: expected " + header.dataLen + ", got " + bytesRead);
-                break;
-            }
-
-            // 4. 保存原始二进制数据（帧头+帧数据）
-            if (fileOutputStream != null) {
+        while (isRunning && (bytesRead = bis.read(buffer)) != -1) {
+            if (bytesRead > 0 && fileOutputStream != null) {
                 try {
-                    //fileOutputStream.write(headerBuffer); // 写入帧头
-                    fileOutputStream.write(frameData);    // 写入帧数据
-                    fileOutputStream.flush(); // 确保数据写入磁盘
+                    fileOutputStream.write(buffer, 0, bytesRead);
                 } catch (IOException e) {
                     Log.e(TAG, "File write error: " + e.getMessage());
-                    closeFileOutputStream(); // 出错时关闭流
+                    closeFileOutputStream();
+                    break;
                 }
             }
-
-            // 5. 回调帧数据（原有功能保留）
-            if (myFrameCallback != null) {
-                myFrameCallback.onFrameReceived(new MyFrame(header, frameData));
-            }
         }
+        Log.i(TAG, "Client disconnected");
     }
 
     public void stop() {
         isRunning = false;
 
         closeServerSocket();
-        closeFileOutputStream(); // 停止时关闭文件流
+        closeFileOutputStream();
 
         if (serverThread != null && serverThread.isAlive()) {
             serverThread.interrupt();
@@ -164,7 +128,6 @@ public class MyServer {
         }
     }
 
-    // 新增：安全关闭文件输出流
     private void closeFileOutputStream() {
         if (fileOutputStream != null) {
             try {
