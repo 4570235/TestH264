@@ -91,7 +91,7 @@ public class H264ActivityTcpYuv extends AppCompatActivity {
             try {
                 frameQueue.put(frame);
             } catch (InterruptedException e) {
-                throw new RuntimeException(e);
+                Log.e(TAG, "onFrameReceived() frameQueue.put() interrupted");
             }
         }, port);
         myServer.start();

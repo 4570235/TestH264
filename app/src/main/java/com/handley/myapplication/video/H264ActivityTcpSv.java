@@ -87,7 +87,7 @@ public class H264ActivityTcpSv extends AppCompatActivity implements SurfaceHolde
             try {
                 frameQueue.put(frame);
             } catch (InterruptedException e) {
-                throw new RuntimeException(e);
+                Log.e(TAG, "onFrameReceived() frameQueue.put() interrupted");
             }
         }, port);
         myServer.start();
