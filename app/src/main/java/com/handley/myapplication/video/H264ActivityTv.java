@@ -7,10 +7,13 @@ import android.os.Bundle;
 import android.util.Log;
 import android.view.Surface;
 import android.view.TextureView;
+
 import androidx.appcompat.app.AppCompatActivity;
+
 import com.handley.myapplication.R;
 import com.handley.myapplication.common.AssetsFileCopier;
 import com.handley.myapplication.common.Utils;
+
 import java.io.BufferedInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
@@ -83,7 +86,7 @@ public class H264ActivityTv extends AppCompatActivity implements TextureView.Sur
             format.setInteger(MediaFormat.KEY_FRAME_RATE, FRAME_RATE);
 
             // 初始化MediaCodec
-            final boolean software = false; // 是否使用软件解码器
+            final boolean software = true; // 是否使用软件解码器
             mediaCodec = software ? Utils.findSoftwareDecoder(MIME_TYPE) : MediaCodec.createDecoderByType(MIME_TYPE);
             mediaCodec.configure(format, surface, null, 0);
             mediaCodec.start();

@@ -289,7 +289,7 @@ public class H264ActivityTcpYuv extends AppCompatActivity {
             format.setInteger(MediaFormat.KEY_FRAME_RATE, 25);
 
             // 初始化MediaCodec
-            final boolean software = false; // 是否使用软件解码器
+            final boolean software = true; // 是否使用软件解码器
             mediaCodec = software ? Utils.findSoftwareDecoder(MIME_TYPE) : MediaCodec.createDecoderByType(MIME_TYPE);
             mediaCodec.configure(format, imageReader.getSurface(), null, 0);
             mediaCodec.start();
