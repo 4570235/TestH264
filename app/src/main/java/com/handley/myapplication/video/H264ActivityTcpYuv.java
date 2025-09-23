@@ -12,16 +12,13 @@ import android.os.HandlerThread;
 import android.util.Log;
 import android.view.View;
 import android.widget.Button;
-
 import androidx.appcompat.app.AppCompatActivity;
-
 import com.handley.myapplication.R;
 import com.handley.myapplication.common.MediaMessageHeader;
 import com.handley.myapplication.common.MyFrame;
 import com.handley.myapplication.common.Utils;
 import com.handley.myapplication.tcp.MyClient;
 import com.handley.myapplication.tcp.MyServer;
-
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
@@ -37,6 +34,8 @@ public class H264ActivityTcpYuv extends AppCompatActivity {
 
     private static final String TAG = Utils.TAG + "H264ActivityTcpYuv";
     private final BlockingQueue<MyFrame> frameQueue = new LinkedBlockingQueue<>(25); // 帧缓冲队列
+    private int imageAvailableIndex = 0;
+    private int saveFileIndex = 0;
     private Button videoBtn, audioBtn;
     private MyServer myServer;
     private MyClient myClient;
@@ -44,7 +43,6 @@ public class H264ActivityTcpYuv extends AppCompatActivity {
     private long startTime = Long.MIN_VALUE; // 播放开始时间（毫秒）
     private Thread decodeThread;
     private volatile boolean decodeThreadRunning = false;
-    private int outputFrameIndex = 0;
     private ImageReader imageReader;
     private HandlerThread imageThread;
 
@@ -66,7 +64,7 @@ public class H264ActivityTcpYuv extends AppCompatActivity {
 
 
     private void initTcp() {
-        final int port = 23333;
+        final int port = 23334;
 
         // 点击启动客户端发送文件
         videoBtn.setOnClickListener(v -> {
@@ -78,13 +76,17 @@ public class H264ActivityTcpYuv extends AppCompatActivity {
         // 创建并启动服务器
         myServer = new MyServer((frame) -> {
             // 处理接收到的帧数据
-            Log.d(TAG, "Received frame: type=" + frame.header.type + ", length=" + frame.header.dataLen + ", timestamp=" + frame.header.timestamp);
-            if (frame.header.type != MediaMessageHeader.H264) return;
+
+            if (frame.header.type != MediaMessageHeader.H264) {
+                Log.e(TAG, "onFrameReceived() frame type not H264");
+                return;
+            }
 
             if (startTime == Long.MIN_VALUE) {
                 long currentTime = System.nanoTime() / 1000000;
                 startTime = currentTime - frame.header.timestamp;
-                Log.i(TAG, "onFrameReceived init currentTime=" + currentTime + " pts=" + frame.header.timestamp + " startTime=" + startTime);
+                Log.i(TAG, "onFrameReceived init currentTime=" + currentTime + " pts=" + frame.header.timestamp
+                        + " startTime=" + startTime);
             }
 
             // 将帧存入队列，视频帧不能丢失，否则后续解不出来。要丢就得一直丢到下一个i帧。
@@ -266,14 +268,15 @@ public class H264ActivityTcpYuv extends AppCompatActivity {
             Handler imageThreadHandler = new Handler(imageThread.getLooper());
             imageReader = ImageReader.newInstance(dimensions[0], dimensions[1], ImageFormat.YUV_420_888, 2);
             imageReader.setOnImageAvailableListener(reader -> {
-                Log.i(TAG, "onImageAvailable frameIndex=" + outputFrameIndex);
+                Log.i(TAG, "onImageAvailable() frameIndex=" + (++imageAvailableIndex));
                 try (Image image = imageReader.acquireLatestImage()) { // 自动关闭
                     if (image == null) {
+                        Log.w(TAG, "onImageAvailable() image == null");
                         return;
                     }
-                    if (outputFrameIndex++ < 30) {
+                    if (imageAvailableIndex % 30 == 0 && saveFileIndex < 100) {
                         File file = new File(getExternalFilesDir(Environment.DIRECTORY_PICTURES),
-                                "frame_" + outputFrameIndex + ".jpg");
+                                "frame_" + (++saveFileIndex) + ".jpg");
                         Utils.saveImageAsJpeg(image, file);
                     }
                 } catch (Exception e) {
@@ -289,12 +292,13 @@ public class H264ActivityTcpYuv extends AppCompatActivity {
             format.setInteger(MediaFormat.KEY_FRAME_RATE, 25);
 
             // 初始化MediaCodec
-            final boolean software = true; // 是否使用软件解码器
+            final boolean software = false; // 是否使用软件解码器
             mediaCodec = software ? Utils.findSoftwareDecoder(MIME_TYPE) : MediaCodec.createDecoderByType(MIME_TYPE);
             mediaCodec.configure(format, imageReader.getSurface(), null, 0);
             mediaCodec.start();
 
-            Log.i(TAG, "initMediaCodecIfNeeded() soft=" + software + " dimensions=" + dimensions[0] + "x" + dimensions[1]);
+            Log.i(TAG,
+                    "initMediaCodecIfNeeded() soft=" + software + " dimensions=" + dimensions[0] + "x" + dimensions[1]);
         } catch (IOException | IllegalStateException e) {
             Log.e(TAG, "initMediaCodecIfNeeded failed", e);
         }
@@ -305,7 +309,8 @@ public class H264ActivityTcpYuv extends AppCompatActivity {
         long targetTime = startTime + pts;
         long currentTime = System.nanoTime() / 1000000;
         long sleepTime = targetTime - currentTime - ahead;
-        Log.v(TAG, "controlSpeed pts=" + pts + " ahead=" + ahead + " targetTime=" + targetTime + " currentTime=" + currentTime + " sleepTime=" + sleepTime);
+        Log.v(TAG, "controlSpeed pts=" + pts + " ahead=" + ahead + " targetTime=" + targetTime + " currentTime="
+                + currentTime + " sleepTime=" + sleepTime);
 
         // 如果太快，等待一段时间
         if (sleepTime > 1) {

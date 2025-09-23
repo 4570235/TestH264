@@ -9,16 +9,13 @@ import android.os.Bundle;
 import android.util.Log;
 import android.view.View;
 import android.widget.Button;
-
 import androidx.appcompat.app.AppCompatActivity;
-
 import com.handley.myapplication.R;
 import com.handley.myapplication.common.MediaMessageHeader;
 import com.handley.myapplication.common.MyFrame;
 import com.handley.myapplication.common.Utils;
 import com.handley.myapplication.tcp.MyClient;
 import com.handley.myapplication.tcp.MyServer;
-
 import java.nio.ByteBuffer;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
@@ -70,7 +67,8 @@ public class OpusActivityTcp extends AppCompatActivity {
             int channelCount = format.getInteger(MediaFormat.KEY_CHANNEL_COUNT);
             int channelConfig = (channelCount == 1) ? AudioFormat.CHANNEL_OUT_MONO : AudioFormat.CHANNEL_OUT_STEREO;
             int bufferSize = AudioTrack.getMinBufferSize(sampleRate, channelConfig, AudioFormat.ENCODING_PCM_16BIT);
-            audioTrack = new AudioTrack(AudioManager.STREAM_MUSIC, sampleRate, channelConfig, AudioFormat.ENCODING_PCM_16BIT, bufferSize, AudioTrack.MODE_STREAM);
+            audioTrack = new AudioTrack(AudioManager.STREAM_MUSIC, sampleRate, channelConfig,
+                    AudioFormat.ENCODING_PCM_16BIT, bufferSize, AudioTrack.MODE_STREAM);
             audioTrack.play();
         } catch (Exception e) {
             throw new RuntimeException("initMedia() failed", e);
@@ -90,14 +88,18 @@ public class OpusActivityTcp extends AppCompatActivity {
         // 创建并启动服务器
         myServer = new MyServer((frame) -> {
             // 处理接收到的帧数据
-            Log.d(TAG, "Received frame: type=" + frame.header.type + ", size=" + frame.header.dataLen + ", timestamp=" + frame.header.timestamp);
-            if (frame.header.type != MediaMessageHeader.OPUS) return;
+
+            if (frame.header.type != MediaMessageHeader.OPUS) {
+                Log.e(TAG, "onFrameReceived() frame type not OPUS");
+                return;
+            }
 
             frame.header.timestamp /= 1000;//转换为毫秒
             if (startTime == Long.MIN_VALUE) {
                 long currentTime = System.nanoTime() / 1000000;
                 startTime = currentTime - frame.header.timestamp;
-                Log.i(TAG, "onFrameReceived init currentTime=" + currentTime + " pts=" + frame.header.timestamp + " startTime=" + startTime);
+                Log.i(TAG, "onFrameReceived init currentTime=" + currentTime + " pts=" + frame.header.timestamp
+                        + " startTime=" + startTime);
             }
 
             // 控制速度：一帧 20ms，队列 50 个数据，1000ms。控制一半水位。
@@ -187,7 +189,8 @@ public class OpusActivityTcp extends AppCompatActivity {
         long targetTime = startTime + pts;
         long currentTime = System.nanoTime() / 1000000;
         long sleepTime = targetTime - currentTime - ahead;
-        Log.v(TAG, "controlSpeed pts=" + pts + " ahead=" + ahead + " targetTime=" + targetTime + " currentTime=" + currentTime + " sleepTime=" + sleepTime);
+        Log.v(TAG, "controlSpeed pts=" + pts + " ahead=" + ahead + " targetTime=" + targetTime + " currentTime="
+                + currentTime + " sleepTime=" + sleepTime);
 
         // 如果太快，等待一段时间
         if (sleepTime > 1) {
@@ -206,7 +209,6 @@ public class OpusActivityTcp extends AppCompatActivity {
         // 停止 tcp
         myServer.stop();
         myClient.stop();
-
 
         // 释放解码器
         if (mediaCodec != null) {

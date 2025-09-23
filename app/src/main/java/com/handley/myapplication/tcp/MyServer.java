@@ -2,12 +2,11 @@ package com.handley.myapplication.tcp;
 
 
 import android.util.Log;
-
+import androidx.annotation.NonNull;
 import com.handley.myapplication.common.MediaMessageHeader;
 import com.handley.myapplication.common.MyFrame;
 import com.handley.myapplication.common.MyFrameCallback;
 import com.handley.myapplication.common.Utils;
-
 import java.io.BufferedInputStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -15,14 +14,16 @@ import java.net.ServerSocket;
 import java.net.Socket;
 
 public class MyServer {
+
     private static final String TAG = Utils.TAG + "MyServer";
+    @NonNull
     private final MyFrameCallback myFrameCallback;
     private final int port;
     private ServerSocket serverSocket;
     private Thread serverThread;
     private volatile boolean isRunning = false;
 
-    public MyServer(MyFrameCallback callback, int port) {
+    public MyServer(@NonNull MyFrameCallback callback, int port) {
         this.myFrameCallback = callback;
         this.port = port;
     }
@@ -37,23 +38,24 @@ public class MyServer {
         serverThread = new Thread(() -> {
             try {
                 serverSocket = new ServerSocket(this.port);
-                Log.i(TAG, "Server started on port " + this.port);
+                Log.i(TAG, "start() Server started on port " + this.port);
 
                 while (isRunning) {
                     try (Socket clientSocket = serverSocket.accept();
                             InputStream inputStream = clientSocket.getInputStream();
                             BufferedInputStream bis = new BufferedInputStream(inputStream)) {
 
-                        Log.i(TAG, "Client connected: " + clientSocket.getInetAddress());
+                        Log.i(TAG, "start() Client connected: " + clientSocket.getInetAddress());
                         processClientData(bis);
+                        Log.i(TAG, "start() finish Client data: " + clientSocket.getInetAddress());
                     } catch (IOException e) {
                         if (isRunning) {
-                            Log.e(TAG, "Client connection error: " + e.getMessage());
+                            Log.e(TAG, "start() Client connection error: " + e.getMessage());
                         }
                     }
                 }
             } catch (IOException e) {
-                Log.e(TAG, "Server error: " + e.getMessage());
+                Log.e(TAG, "start() Server error: " + e.getMessage());
             } finally {
                 closeServerSocket();
             }
@@ -94,9 +96,9 @@ public class MyServer {
             }
 
             // 4. 回调帧数据
-            if (myFrameCallback != null) {
-                myFrameCallback.onFrameReceived(new MyFrame(header, frameData));
-            }
+            Log.d(TAG, "Received frame: type=" + header.type + ", length=" + header.dataLen + ", timestamp="
+                    + header.timestamp);
+            myFrameCallback.onFrameReceived(new MyFrame(header, frameData));
         }
     }
 
@@ -113,6 +115,7 @@ public class MyServer {
                 Log.w(TAG, "Interrupted while stopping server thread");
             }
         }
+        Log.i(TAG, "stop() finish");
     }
 
     private void closeServerSocket() {

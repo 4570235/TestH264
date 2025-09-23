@@ -9,16 +9,13 @@ import android.view.SurfaceHolder;
 import android.view.SurfaceView;
 import android.view.View;
 import android.widget.Button;
-
 import androidx.appcompat.app.AppCompatActivity;
-
 import com.handley.myapplication.R;
 import com.handley.myapplication.common.MediaMessageHeader;
 import com.handley.myapplication.common.MyFrame;
 import com.handley.myapplication.common.Utils;
 import com.handley.myapplication.tcp.MyClient;
 import com.handley.myapplication.tcp.MyServer;
-
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -74,13 +71,17 @@ public class H264ActivityTcpSv extends AppCompatActivity implements SurfaceHolde
         // 创建并启动服务器
         myServer = new MyServer((frame) -> {
             // 处理接收到的帧数据
-            Log.d(TAG, "Received frame: type=" + frame.header.type + ", length=" + frame.header.dataLen + ", timestamp=" + frame.header.timestamp);
-            if (frame.header.type != MediaMessageHeader.H264) return;
+
+            if (frame.header.type != MediaMessageHeader.H264) {
+                Log.e(TAG, "onFrameReceived() frame type not H264");
+                return;
+            }
 
             if (startTime == Long.MIN_VALUE) {
                 long currentTime = System.nanoTime() / 1000000;
                 startTime = currentTime - frame.header.timestamp;
-                Log.i(TAG, "onFrameReceived init currentTime=" + currentTime + " pts=" + frame.header.timestamp + " startTime=" + startTime);
+                Log.i(TAG, "onFrameReceived init currentTime=" + currentTime + " pts=" + frame.header.timestamp
+                        + " startTime=" + startTime);
             }
 
             // 将帧存入队列，视频帧不能丢失，否则后续解不出来。要丢就得一直丢到下一个i帧。
@@ -269,12 +270,13 @@ public class H264ActivityTcpSv extends AppCompatActivity implements SurfaceHolde
             format.setInteger(MediaFormat.KEY_FRAME_RATE, 25);
 
             // 初始化MediaCodec
-            final boolean software = true; // 是否使用软件解码器
+            final boolean software = false; // 是否使用软件解码器
             mediaCodec = software ? Utils.findSoftwareDecoder(MIME_TYPE) : MediaCodec.createDecoderByType(MIME_TYPE);
             mediaCodec.configure(format, surface, null, 0);
             mediaCodec.start();
 
-            Log.i(TAG, "initMediaCodecIfNeeded() soft=" + software + " dimensions=" + dimensions[0] + "x" + dimensions[1]);
+            Log.i(TAG,
+                    "initMediaCodecIfNeeded() soft=" + software + " dimensions=" + dimensions[0] + "x" + dimensions[1]);
         } catch (IOException | IllegalStateException e) {
             Log.e(TAG, "initMediaCodecIfNeeded failed", e);
         }
@@ -285,7 +287,8 @@ public class H264ActivityTcpSv extends AppCompatActivity implements SurfaceHolde
         long targetTime = startTime + pts;
         long currentTime = System.nanoTime() / 1000000;
         long sleepTime = targetTime - currentTime - ahead;
-        Log.v(TAG, "controlSpeed pts=" + pts + " ahead=" + ahead + " targetTime=" + targetTime + " currentTime=" + currentTime + " sleepTime=" + sleepTime);
+        Log.v(TAG, "controlSpeed pts=" + pts + " ahead=" + ahead + " targetTime=" + targetTime + " currentTime="
+                + currentTime + " sleepTime=" + sleepTime);
 
         // 如果太快，等待一段时间
         if (sleepTime > 1) {

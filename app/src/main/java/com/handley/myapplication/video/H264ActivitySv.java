@@ -7,13 +7,10 @@ import android.util.Log;
 import android.view.Surface;
 import android.view.SurfaceHolder;
 import android.view.SurfaceView;
-
 import androidx.appcompat.app.AppCompatActivity;
-
 import com.handley.myapplication.R;
 import com.handley.myapplication.common.AssetsFileCopier;
 import com.handley.myapplication.common.Utils;
-
 import java.io.BufferedInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
