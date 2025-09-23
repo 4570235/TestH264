@@ -1,5 +1,6 @@
-package com.handley.myapplication.video;
+package com.handley.myapplication.demo;
 
+import com.handley.myapplication.common.StartCodeInfo;
 import java.io.IOException;
 import java.io.InputStream;
 

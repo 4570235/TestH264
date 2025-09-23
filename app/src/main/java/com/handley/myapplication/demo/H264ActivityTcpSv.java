@@ -1,15 +1,12 @@
-package com.handley.myapplication.video;
+package com.handley.myapplication.demo;
 
-import android.graphics.ImageFormat;
-import android.media.Image;
-import android.media.ImageReader;
 import android.media.MediaCodec;
 import android.media.MediaFormat;
 import android.os.Bundle;
-import android.os.Environment;
-import android.os.Handler;
-import android.os.HandlerThread;
 import android.util.Log;
+import android.view.Surface;
+import android.view.SurfaceHolder;
+import android.view.SurfaceView;
 import android.view.View;
 import android.widget.Button;
 import androidx.appcompat.app.AppCompatActivity;
@@ -21,7 +18,6 @@ import com.handley.myapplication.tcp.MyClient;
 import com.handley.myapplication.tcp.MyServer;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
-import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.ByteBuffer;
@@ -29,27 +25,27 @@ import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
 
-// 演示 MyVideoClient 向 MyVideoServer 发送 dump.h264(含私有协议头) 文件数据流。解码成 yuv420 数据保存成 jpg 文件。
-public class H264ActivityTcpYuv extends AppCompatActivity {
+// 演示 MyVideoClient 向 MyVideoServer 发送(含私有协议头的)文件数据流，解码播放。
+public class H264ActivityTcpSv extends AppCompatActivity implements SurfaceHolder.Callback {
 
-    private static final String TAG = Utils.TAG + "H264ActivityTcpYuv";
+    private static final String TAG = Utils.TAG + "H264ActivityTcpSv";
     private final BlockingQueue<MyFrame> frameQueue = new LinkedBlockingQueue<>(25); // 帧缓冲队列
-    private int imageAvailableIndex = 0;
-    private int saveFileIndex = 0;
+    private SurfaceView surfaceView;
     private Button videoBtn, audioBtn;
+    private Surface surface;
     private MyServer myServer;
     private MyClient myClient;
     private MediaCodec mediaCodec;
     private long startTime = Long.MIN_VALUE; // 播放开始时间（毫秒）
     private Thread decodeThread;
     private volatile boolean decodeThreadRunning = false;
-    private ImageReader imageReader;
-    private HandlerThread imageThread;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
+        surfaceView = findViewById(R.id.surface_view);
+        surfaceView.getHolder().addCallback(this);
         videoBtn = findViewById(R.id.video_btn);
         audioBtn = findViewById(R.id.audio_btn);
         videoBtn.setVisibility(View.VISIBLE);
@@ -61,7 +57,6 @@ public class H264ActivityTcpYuv extends AppCompatActivity {
 
         Log.i(TAG, "onCreate()");
     }
-
 
     private void initTcp() {
         final int port = 23334;
@@ -130,6 +125,11 @@ public class H264ActivityTcpYuv extends AppCompatActivity {
 
     // 处理H264数据
     private void decodeData(byte[] data, long pts) {
+        if (surface == null) {
+            Log.w(TAG, "Decode " + " surface=" + surface);
+            return;
+        }
+
         byte[] sps = null, pps = null;
         try (InputStream is = new ByteArrayInputStream(data)) {
             H264StreamReader streamReader = new H264StreamReader(is);
@@ -262,28 +262,6 @@ public class H264ActivityTcpYuv extends AppCompatActivity {
             // 从SPS中解析视频宽高
             int[] dimensions = Utils.parseSps(sps);
 
-            // 创建ImageReader获取YUV数据
-            imageThread = new HandlerThread("ImageThread");
-            imageThread.start();
-            Handler imageThreadHandler = new Handler(imageThread.getLooper());
-            imageReader = ImageReader.newInstance(dimensions[0], dimensions[1], ImageFormat.YUV_420_888, 2);
-            imageReader.setOnImageAvailableListener(reader -> {
-                Log.i(TAG, "onImageAvailable() frameIndex=" + (++imageAvailableIndex));
-                try (Image image = imageReader.acquireLatestImage()) { // 自动关闭
-                    if (image == null) {
-                        Log.w(TAG, "onImageAvailable() image == null");
-                        return;
-                    }
-                    if (imageAvailableIndex % 30 == 0 && saveFileIndex < 100) {
-                        File file = new File(getExternalFilesDir(Environment.DIRECTORY_PICTURES),
-                                "frame_" + (++saveFileIndex) + ".jpg");
-                        Utils.saveImageAsJpeg(image, file);
-                    }
-                } catch (Exception e) {
-                    e.printStackTrace();
-                }
-            }, imageThreadHandler);
-
             // 创建并配置MediaFormat
             String MIME_TYPE = "video/avc";
             MediaFormat format = MediaFormat.createVideoFormat(MIME_TYPE, dimensions[0], dimensions[1]);
@@ -294,7 +272,7 @@ public class H264ActivityTcpYuv extends AppCompatActivity {
             // 初始化MediaCodec
             final boolean software = false; // 是否使用软件解码器
             mediaCodec = software ? Utils.findSoftwareDecoder(MIME_TYPE) : MediaCodec.createDecoderByType(MIME_TYPE);
-            mediaCodec.configure(format, imageReader.getSurface(), null, 0);
+            mediaCodec.configure(format, surface, null, 0);
             mediaCodec.start();
 
             Log.i(TAG,
@@ -356,15 +334,24 @@ public class H264ActivityTcpYuv extends AppCompatActivity {
             }
         }
 
-        // 停止ImageReader
-        if (imageReader != null) {
-            imageReader.close();
-            imageReader = null;
-        }
-        if (imageThread != null) {
-            imageThread.quitSafely();
-        }
-
         Log.i(TAG, "release()");
+    }
+
+    @Override
+    public void surfaceCreated(SurfaceHolder holder) {
+        surface = holder.getSurface();
+        Log.i(TAG, "Surface created");
+    }
+
+    @Override
+    public void surfaceChanged(SurfaceHolder holder, int format, int width, int height) {
+        Log.i(TAG, "Surface changed: " + width + "x" + height);
+    }
+
+    @Override
+    public void surfaceDestroyed(SurfaceHolder holder) {
+        Log.i(TAG, "Surface destroyed");
+        release();
+        finish();//此类只为了演示解码渲染，不考虑 ui 交互。
     }
 }

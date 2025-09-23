@@ -10,8 +10,9 @@ import android.media.MediaCodecInfo;
 import android.media.MediaCodecList;
 import android.media.MediaFormat;
 import android.util.Log;
-import com.handley.myapplication.video.H264StreamReader;
+import com.handley.myapplication.demo.H264StreamReader;
 import java.io.BufferedInputStream;
+import java.io.ByteArrayInputStream;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
@@ -26,37 +27,48 @@ public class Utils {
     // 提取SPS和PPS, 返回SPS和PPS的字节数组，不带起始码 0x00 0x00 0x00 0x01
     public static byte[][] extractSpsPps(File file) throws IOException {
         try (InputStream is = new BufferedInputStream(new FileInputStream(file))) {
-            H264StreamReader streamReader = new H264StreamReader(is);
-
-            byte[] sps = null;
-            byte[] pps = null;
-
-            while (sps == null || pps == null) {
-                byte[] nal = streamReader.readNextNalUnit();
-                if (nal == null) {
-                    break; // 没有更多数据
-                }
-
-                if (nal.length < 1) {
-                    continue;
-                }
-
-                int nalType = nal[0] & 0x1F;
-                if (nalType == 7) { // SPS
-                    sps = nal;
-                } else if (nalType == 8) { // PPS
-                    pps = nal;
-                }
-            }
-
-            if (sps == null || pps == null) {
-                throw new IOException("SPS or PPS not found");
-            }
-
-            System.out.println("SPS Hex: " + bytesToHex(sps));
-            System.out.println("PPS Hex: " + bytesToHex(pps));
-            return new byte[][]{sps, pps};
+            return extractSpsPps(is);
         }
+    }
+
+    // 提取SPS和PPS, 返回SPS和PPS的字节数组，不带起始码 0x00 0x00 0x00 0x01
+    public static byte[][] extractSpsPps(byte[] data) throws IOException {
+        try (InputStream is = new BufferedInputStream(new ByteArrayInputStream(data))) {
+            return extractSpsPps(is);
+        }
+    }
+
+    private static byte[][] extractSpsPps(InputStream is) throws IOException {
+        H264StreamReader streamReader = new H264StreamReader(is);
+
+        byte[] sps = null;
+        byte[] pps = null;
+
+        while (sps == null || pps == null) {
+            byte[] nal = streamReader.readNextNalUnit();
+            if (nal == null) {
+                break; // 没有更多数据
+            }
+
+            if (nal.length < 1) {
+                continue;
+            }
+
+            int nalType = nal[0] & 0x1F;
+            if (nalType == 7) { // SPS
+                sps = nal;
+            } else if (nalType == 8) { // PPS
+                pps = nal;
+            }
+        }
+
+        if (sps == null || pps == null) {
+            throw new IOException("SPS or PPS not found");
+        }
+
+        System.out.println("SPS Hex: " + bytesToHex(sps));
+        System.out.println("PPS Hex: " + bytesToHex(pps));
+        return new byte[][]{sps, pps};
     }
 
     private static String bytesToHex(byte[] bytes) {
@@ -291,6 +303,32 @@ public class Utils {
 
         format.setInteger(MediaFormat.KEY_TRACK_ID, 1);
 
+        return format;
+    }
+
+    public static MediaFormat createVideoFormat(byte[] sps, byte[] pps) {
+        // 1. 手动创建MediaFormat对象
+        MediaFormat format = MediaFormat.createVideoFormat("video/avc", 540, 960);
+        // 2. 添加关键参数（根据打印信息）
+        format.setInteger(MediaFormat.KEY_COLOR_STANDARD, 1);
+        format.setInteger(MediaFormat.KEY_COLOR_RANGE, 1);
+        format.setInteger(MediaFormat.KEY_COLOR_TRANSFER, 3);
+        format.setInteger(MediaFormat.KEY_MAX_INPUT_SIZE, 30773);
+        format.setFloat(MediaFormat.KEY_FRAME_RATE, 30.0f);
+        format.setInteger(MediaFormat.KEY_PROFILE, 8);  // AVCProfileBaseline
+        format.setInteger(MediaFormat.KEY_LEVEL, 512);  // AVCLevel31
+        // 3. 添加CSD数据（SPS和PPS）
+        if (sps == null || pps == null) {
+            sps = new byte[]{0, 0, 0, 1, 103, 100, 0, 31, -84, -39, 64, -120, 30, 123, -16, 22, -32, 32, 32, 40, 0, 65,
+                    46,
+                    56, 15, 71, 34, 0, 120, -63, -116, -80};
+            pps = new byte[]{0, 0, 0, 1, 104, -21, -29, -53, 34, -64};
+            format.setByteBuffer("csd-0", ByteBuffer.wrap(sps));
+            format.setByteBuffer("csd-1", ByteBuffer.wrap(pps));
+        } else {
+            format.setByteBuffer("csd-0", ByteBuffer.wrap(Utils.addStartCode(sps)));
+            format.setByteBuffer("csd-1", ByteBuffer.wrap(Utils.addStartCode(pps)));
+        }
         return format;
     }
 

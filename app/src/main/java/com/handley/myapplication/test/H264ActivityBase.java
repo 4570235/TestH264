@@ -1,19 +1,14 @@
-package com.handley.myapplication.video;
+package com.handley.myapplication.test;
 
-import android.graphics.SurfaceTexture;
 import android.media.MediaCodec;
 import android.media.MediaFormat;
 import android.os.Bundle;
 import android.util.Log;
 import android.view.Surface;
-import android.view.TextureView;
-
 import androidx.appcompat.app.AppCompatActivity;
-
-import com.handley.myapplication.R;
 import com.handley.myapplication.common.AssetsFileCopier;
 import com.handley.myapplication.common.Utils;
-
+import com.handley.myapplication.demo.H264StreamReader;
 import java.io.BufferedInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
@@ -22,17 +17,15 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.nio.ByteBuffer;
 
-// 使用 MediaCodec 解码 test.h264 文件，渲染到 TextureView 上
-public class H264ActivityTv extends AppCompatActivity implements TextureView.SurfaceTextureListener {
+// 使用 MediaCodec 解码 h264 文件并渲染的基类
+public class H264ActivityBase extends AppCompatActivity {
 
     private static final String TAG = Utils.TAG + "H264ActivityTv";
     private static final String MIME_TYPE = "video/avc";
-    private static final int FRAME_RATE = 25; // 假设帧率
+    private static final int FRAME_RATE = 25;
     private static final long FRAME_INTERVAL_US = 1000000 / FRAME_RATE;
 
     private MediaCodec mediaCodec;
-    private TextureView textureView;
-    private Surface outputSurface;
     private Thread decoderThread;
     private File h264File;
     private volatile boolean isRunning = false;
@@ -40,36 +33,10 @@ public class H264ActivityTv extends AppCompatActivity implements TextureView.Sur
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        setContentView(R.layout.activity_textureview_main);
-        textureView = findViewById(R.id.texture_view);
-        textureView.setSurfaceTextureListener(this);
-        h264File = AssetsFileCopier.copyAssetToExternalFilesDir(this, "test.h264");
+        h264File = AssetsFileCopier.copyAssetToExternalFilesDir(this, "test2.h264");
     }
 
-    // TextureView回调方法
-    @Override
-    public void onSurfaceTextureSizeChanged(SurfaceTexture surface, int width, int height) {
-    }
-
-    @Override
-    public boolean onSurfaceTextureDestroyed(SurfaceTexture surface) {
-        stopDecoder();
-        return true;
-    }
-
-    @Override
-    public void onSurfaceTextureUpdated(SurfaceTexture surface) {
-    }
-
-    @Override
-    public void onSurfaceTextureAvailable(SurfaceTexture surfaceTexture, int width, int height) {
-        // 创建Surface用于MediaCodec输出
-        outputSurface = new Surface(surfaceTexture);
-        // 开始解码
-        startDecoder(outputSurface);
-    }
-
-    private void startDecoder(Surface surface) {
+    protected void startDecoder(Surface surface) {
         try {
             // 从文件中提取SPS和PPS
             byte[][] spsPps = Utils.extractSpsPps(h264File);
@@ -86,7 +53,7 @@ public class H264ActivityTv extends AppCompatActivity implements TextureView.Sur
             format.setInteger(MediaFormat.KEY_FRAME_RATE, FRAME_RATE);
 
             // 初始化MediaCodec
-            final boolean software = true; // 是否使用软件解码器
+            final boolean software = false; // 是否使用软件解码器
             mediaCodec = software ? Utils.findSoftwareDecoder(MIME_TYPE) : MediaCodec.createDecoderByType(MIME_TYPE);
             mediaCodec.configure(format, surface, null, 0);
             mediaCodec.start();
@@ -94,7 +61,6 @@ public class H264ActivityTv extends AppCompatActivity implements TextureView.Sur
             // 启动解码线程
             isRunning = true;
             decoderThread = new Thread(new DecoderRunnable(h264File));
-            //decoderThread.setPriority(Thread.MAX_PRIORITY); // 设置高优先级
             decoderThread.start();
             Log.i(TAG, "startDecoder() software=" + software + " dimensions=" + dimensions[0] + "x" + dimensions[1]);
         } catch (IOException e) {
@@ -102,7 +68,7 @@ public class H264ActivityTv extends AppCompatActivity implements TextureView.Sur
         }
     }
 
-    private void stopDecoder() {
+    protected void stopDecoder() {
         isRunning = false;
         if (decoderThread != null) {
             try {
@@ -124,7 +90,7 @@ public class H264ActivityTv extends AppCompatActivity implements TextureView.Sur
 
         private final File h264File;
         private long startTimeNs = -1; // 播放开始时间（纳秒）
-        private long frameCounter = 0; // 帧计数器
+        private long frameIndex = 0; // 帧计数器
 
         public DecoderRunnable(File h264File) {
             this.h264File = h264File;
@@ -134,7 +100,6 @@ public class H264ActivityTv extends AppCompatActivity implements TextureView.Sur
         public void run() {
             try (InputStream is = new BufferedInputStream(new FileInputStream(h264File))) {
                 H264StreamReader streamReader = new H264StreamReader(is);
-
                 boolean isWaitingForIDR = false;
                 ByteArrayOutputStream currentFrame = new ByteArrayOutputStream();
 
@@ -152,29 +117,15 @@ public class H264ActivityTv extends AppCompatActivity implements TextureView.Sur
                     }
 
                     int nalType = nal[0] & 0x1F;
-                    Log.d(TAG, "nalType=" + nalType + " isWaitingForIDR=" + isWaitingForIDR + " frameCounter="
-                            + frameCounter + " presentationTimeUs=" + presentationTimeUs);
+                    Log.d(TAG, "nalType=" + nalType + " nalLen=" + nal.length + " frameIndex=" + frameIndex
+                            + " pts=" + presentationTimeUs);
                     switch (nalType) {
-                        case 7: // SPS
-                            isWaitingForIDR = true;
+                        // 和 H264ActivityTvMe 相同的处理方式，首帧为 SEI+IDR，不带 SPS 和 PPS。
+                        case 6: // SEI
                             currentFrame.write(new byte[]{0, 0, 0, 1});
                             currentFrame.write(nal);
+                            isWaitingForIDR = true;
                             break;
-
-                        case 8: // PPS
-                            if (isWaitingForIDR) {
-                                currentFrame.write(new byte[]{0, 0, 0, 1});
-                                currentFrame.write(nal);
-                            }
-                            break;
-
-                        case 6: // SEI
-                            if (isWaitingForIDR) {
-                                currentFrame.write(new byte[]{0, 0, 0, 1});
-                                currentFrame.write(nal);
-                            }
-                            break;
-
                         case 5: // IDR
                             if (isWaitingForIDR) {
                                 currentFrame.write(new byte[]{0, 0, 0, 1});
@@ -182,22 +133,16 @@ public class H264ActivityTv extends AppCompatActivity implements TextureView.Sur
                                 submitFrame(currentFrame.toByteArray(), presentationTimeUs, true);
                                 currentFrame.reset();
                                 isWaitingForIDR = false;
-                                frameCounter++;
+                                frameIndex++;
                             } else {
                                 // 提交单个NAL单元
                                 submitSingleFrame(nal, presentationTimeUs, true);
-                                frameCounter++;
+                                frameIndex++;
                             }
                             break;
-
                         case 1: // 非IDR Slice
-                            if (isWaitingForIDR) {
-                                // 错误处理：预期IDR但遇到普通帧
-                                currentFrame.reset();
-                                isWaitingForIDR = false;
-                            }
                             submitSingleFrame(nal, presentationTimeUs, false);
-                            frameCounter++;
+                            frameIndex++;
                             break;
 
                         default:
@@ -227,7 +172,7 @@ public class H264ActivityTv extends AppCompatActivity implements TextureView.Sur
             }
 
             // 计算基于帧计数的时间
-            return frameCounter * FRAME_INTERVAL_US;
+            return frameIndex * FRAME_INTERVAL_US;
         }
 
         // 控制播放速度
@@ -270,9 +215,9 @@ public class H264ActivityTv extends AppCompatActivity implements TextureView.Sur
                     ByteBuffer inputBuffer = mediaCodec.getInputBuffer(inputBufferIndex);
                     inputBuffer.clear();
                     inputBuffer.put(frameData);
-                    Log.v(TAG, "submitFrame() inputBufferIndex=" + inputBufferIndex + " frameData.length="
-                            + frameData.length + " presentationTimeUs=" + presentationTimeUs + " isKeyFrame="
-                            + isKeyFrame);
+                    Log.d(TAG, "queueInputBuffer inputBufferIndex=" + inputBufferIndex + " size=" + frameData.length
+                            + " pts=" + presentationTimeUs + " flag=" + (isKeyFrame ? MediaCodec.BUFFER_FLAG_KEY_FRAME
+                            : 0));
                     mediaCodec.queueInputBuffer(inputBufferIndex, 0, frameData.length, presentationTimeUs,
                             isKeyFrame ? MediaCodec.BUFFER_FLAG_KEY_FRAME : 0);
                 }

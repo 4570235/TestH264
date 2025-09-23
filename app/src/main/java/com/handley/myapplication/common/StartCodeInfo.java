@@ -1,4 +1,4 @@
-package com.handley.myapplication.video;
+package com.handley.myapplication.common;
 
 // 起始码信息类
 public class StartCodeInfo {
