@@ -70,13 +70,18 @@ public class MyServer {
 
         while (isRunning) {
             // 1. 读取帧头
-            bytesRead = bis.read(headerBuffer, 0, MediaMessageHeader.SIZE);
-            if (bytesRead != MediaMessageHeader.SIZE) {
+            int totalHeaderBytesRead = 0;
+            while (totalHeaderBytesRead < MediaMessageHeader.SIZE && isRunning) {
+                bytesRead = bis.read(headerBuffer, totalHeaderBytesRead,
+                        MediaMessageHeader.SIZE - totalHeaderBytesRead);
                 if (bytesRead == -1) {
-                    Log.i(TAG, "End of stream reached");
-                } else {
-                    Log.w(TAG, "Incomplete header: " + bytesRead + " bytes");
+                    Log.i(TAG, "End of stream reached during header read");
+                    break;
                 }
+                totalHeaderBytesRead += bytesRead;
+            }
+            if (totalHeaderBytesRead != MediaMessageHeader.SIZE) {
+                Log.w(TAG, "Incomplete header: expected " + MediaMessageHeader.SIZE + ", got " + totalHeaderBytesRead);
                 break;
             }
 
@@ -89,9 +94,17 @@ public class MyServer {
 
             // 3. 读取帧数据
             byte[] frameData = new byte[header.dataLen];
-            bytesRead = bis.read(frameData, 0, header.dataLen);
-            if (bytesRead != header.dataLen) {
-                Log.e(TAG, "Incomplete frame data: expected " + header.dataLen + ", got " + bytesRead);
+            int totalBytesRead = 0;
+            while (totalBytesRead < header.dataLen && isRunning) {
+                bytesRead = bis.read(frameData, totalBytesRead, header.dataLen - totalBytesRead);
+                if (bytesRead == -1) {
+                    Log.e(TAG, "Unexpected end of stream while reading frame data");
+                    break;
+                }
+                totalBytesRead += bytesRead;
+            }
+            if (totalBytesRead != header.dataLen) {
+                Log.e(TAG, "Incomplete frame data: expected " + header.dataLen + ", got " + totalBytesRead);
                 break;
             }
 

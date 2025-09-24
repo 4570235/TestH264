@@ -2,10 +2,8 @@ package com.handley.myapplication.tcp;
 
 import android.content.Context;
 import android.util.Log;
-
 import com.handley.myapplication.common.AssetsFileCopier;
 import com.handley.myapplication.common.Utils;
-
 import java.io.BufferedInputStream;
 import java.io.File;
 import java.io.FileInputStream;
@@ -55,16 +53,18 @@ public class MyClient {
                 // 3. 读取并发送文件
                 fis = new FileInputStream(dumpFile);
                 bis = new BufferedInputStream(fis);
-                byte[] buffer = new byte[4096 * 5];
+                byte[] buffer = new byte[1024 * 100];
                 int bytesRead;
 
                 while ((bytesRead = bis.read(buffer)) != -1) {
                     outputStream.write(buffer, 0, bytesRead);
                     outputStream.flush();
+                    Log.v(TAG, "write: " + bytesRead);
+                    Thread.sleep(10);//一次发 100k 数据，sleep 10ms，每秒最多发 10M 数据。
                 }
 
                 Log.i(TAG, "File transfer completed");
-            } catch (IOException e) {
+            } catch (Exception e) {
                 Log.e(TAG, "Client error: " + e.getMessage());
             } finally {
                 // 4. 关闭资源
