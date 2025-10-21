@@ -177,7 +177,10 @@ public abstract class H264ActivityTcpBase extends AppCompatActivity {
             return;
         }
         try {
-            int inputBufferIndex = mediaCodec.dequeueInputBuffer(10000);
+            int inputBufferIndex;
+            while ((inputBufferIndex = mediaCodec.dequeueInputBuffer(10000)) == MediaCodec.INFO_TRY_AGAIN_LATER) {
+                Thread.sleep(2);
+            }
             if (inputBufferIndex >= 0) {
                 ByteBuffer inputBuffer = mediaCodec.getInputBuffer(inputBufferIndex);
                 if (inputBuffer != null) {
@@ -187,6 +190,9 @@ public abstract class H264ActivityTcpBase extends AppCompatActivity {
                             + frameData.length + " pts=" + presentationTimeUs + " flag=" + flag);
                     mediaCodec.queueInputBuffer(inputBufferIndex, 0, frameData.length, presentationTimeUs, flag);
                 }
+            } else {
+                Log.e(TAG, "submitFrame() queueInputBuffer inputBufferIndex=" + inputBufferIndex + " pts="
+                        + presentationTimeUs + " flag=" + flag);
             }
         } catch (Exception e) {
             Log.e(TAG, "drainOutput() error=", e);

@@ -210,7 +210,10 @@ public class H264ActivityBase extends AppCompatActivity {
 
         private void submitFrame(byte[] frameData, long presentationTimeUs, boolean isKeyFrame) {
             try {
-                int inputBufferIndex = mediaCodec.dequeueInputBuffer(10000);
+                int inputBufferIndex;
+                while ((inputBufferIndex = mediaCodec.dequeueInputBuffer(10000)) == MediaCodec.INFO_TRY_AGAIN_LATER) {
+                    Thread.sleep(2);
+                }
                 if (inputBufferIndex >= 0) {
                     ByteBuffer inputBuffer = mediaCodec.getInputBuffer(inputBufferIndex);
                     inputBuffer.clear();
@@ -220,6 +223,9 @@ public class H264ActivityBase extends AppCompatActivity {
                             : 0));
                     mediaCodec.queueInputBuffer(inputBufferIndex, 0, frameData.length, presentationTimeUs,
                             isKeyFrame ? MediaCodec.BUFFER_FLAG_KEY_FRAME : 0);
+                } else {
+                    Log.e(TAG, "queueInputBuffer inputBufferIndex=" + inputBufferIndex + " pts=" + presentationTimeUs
+                            + " flag=" + (isKeyFrame ? MediaCodec.BUFFER_FLAG_KEY_FRAME : 0));
                 }
             } catch (Exception e) {
                 e.printStackTrace();
@@ -255,9 +261,18 @@ public class H264ActivityBase extends AppCompatActivity {
         }
 
         private void signalEndOfStream() {
-            int inputBufferIndex = mediaCodec.dequeueInputBuffer(10000);
+            int inputBufferIndex;
+            while ((inputBufferIndex = mediaCodec.dequeueInputBuffer(10000)) == MediaCodec.INFO_TRY_AGAIN_LATER) {
+                try {
+                    Thread.sleep(2);
+                } catch (InterruptedException e) {
+                    //throw new RuntimeException(e);
+                }
+            }
             if (inputBufferIndex >= 0) {
                 mediaCodec.queueInputBuffer(inputBufferIndex, 0, 0, 0, MediaCodec.BUFFER_FLAG_END_OF_STREAM);
+            } else {
+                Log.e(TAG, "signalEndOfStream() queueInputBuffer inputBufferIndex=" + inputBufferIndex);
             }
 
             // 等待所有输出处理完成

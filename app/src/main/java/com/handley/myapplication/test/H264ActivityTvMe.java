@@ -122,7 +122,15 @@ public class H264ActivityTvMe extends AppCompatActivity implements SurfaceTextur
         final BufferInfo bufferInfo = new BufferInfo();
         while (isDecoding) {
             // 将数据送入解码器输入缓冲区
-            int inputBufferIndex = mediaCodec.dequeueInputBuffer(10000);
+            int inputBufferIndex;
+            while ((inputBufferIndex = mediaCodec.dequeueInputBuffer(10000)) == MediaCodec.INFO_TRY_AGAIN_LATER) {
+                try {
+                    Thread.sleep(2);
+                } catch (InterruptedException e) {
+                    //throw new RuntimeException(e);
+                }
+            }
+
             if (inputBufferIndex >= 0) {
                 ByteBuffer inputBuffer = mediaCodec.getInputBuffer(inputBufferIndex);
                 if (inputBuffer != null) {
@@ -203,6 +211,8 @@ public class H264ActivityTvMe extends AppCompatActivity implements SurfaceTextur
                         // ==== 结束新增 ====
                     }
                 }
+            } else {
+                Log.e(TAG, "queueInputBuffer inputBufferIndex=" + inputBufferIndex);
             }
 
             // 处理解码器输出

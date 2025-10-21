@@ -156,11 +156,20 @@ public class OpusActivityTcp extends AppCompatActivity {
         ByteBuffer[] inputBuffers = mediaCodec.getInputBuffers();
         ByteBuffer[] outputBuffers = mediaCodec.getOutputBuffers();
         MediaCodec.BufferInfo info = new MediaCodec.BufferInfo();
-        int inputBufferIndex = mediaCodec.dequeueInputBuffer(10000);
+        int inputBufferIndex;
+        while ((inputBufferIndex = mediaCodec.dequeueInputBuffer(10000)) == MediaCodec.INFO_TRY_AGAIN_LATER) {
+            try {
+                Thread.sleep(2);
+            } catch (InterruptedException e) {
+                //throw new RuntimeException(e);
+            }
+        }
         if (inputBufferIndex >= 0) {
             ByteBuffer buffer = inputBuffers[inputBufferIndex];
             buffer.put(data);
             mediaCodec.queueInputBuffer(inputBufferIndex, 0, data.length, pts, 0);
+        } else {
+            Log.e(TAG, "decodeData() queueInputBuffer inputBufferIndex=" + inputBufferIndex + " pts=" + pts);
         }
 
         // 从解码器获取输出

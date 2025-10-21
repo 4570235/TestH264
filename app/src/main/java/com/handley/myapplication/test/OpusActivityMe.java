@@ -111,7 +111,14 @@ public class OpusActivityMe extends AppCompatActivity {
             while (!sawOutputEOS && isPlaying) {
                 // 输入数据到解码器
                 if (!sawInputEOS) {
-                    int inputBufferIndex = codec.dequeueInputBuffer(10000);
+                    int inputBufferIndex;
+                    while ((inputBufferIndex = codec.dequeueInputBuffer(10000)) == MediaCodec.INFO_TRY_AGAIN_LATER) {
+                        try {
+                            Thread.sleep(2);
+                        } catch (InterruptedException e) {
+                            //throw new RuntimeException(e);
+                        }
+                    }
                     if (inputBufferIndex >= 0) {
                         ByteBuffer buffer = inputBuffers[inputBufferIndex];
                         int sampleSize = extractor.readSampleData(buffer, 0);
@@ -146,6 +153,8 @@ public class OpusActivityMe extends AppCompatActivity {
                             codec.queueInputBuffer(inputBufferIndex, 0, sampleSize, presentationTimeUs, 0);
                             extractor.advance();
                         }
+                    } else {
+                        Log.e(TAG, "playOpusAudio() queueInputBuffer inputBufferIndex=" + inputBufferIndex);
                     }
                 }
 
