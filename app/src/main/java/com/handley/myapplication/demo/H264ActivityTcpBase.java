@@ -379,44 +379,26 @@ public abstract class H264ActivityTcpBase extends AppCompatActivity {
         }
     }
 
-    private byte[] currentSps = null;
-    private byte[] currentPps = null;
-
     private void configMediaCodec(@NonNull byte[] sps, @NonNull byte[] pps) {
         // 检查是否需要重新配置
         boolean needReconfig = false;
         if (mediaCodec != null) {
-            // 比较新旧SPS和PPS是否相同
-            if (!java.util.Arrays.equals(currentSps, sps) || !java.util.Arrays.equals(currentPps, pps)) {
-                Log.i(TAG, "configMediaCodec() 检测到SPS/PPS变化，需要重新配置解码器");
-                needReconfig = true;
-                
-                // 释放旧的解码器
-                try {
-                    mediaCodec.stop();
-                    mediaCodec.release();
-                    mediaCodec = null;
-                    Log.i(TAG, "configMediaCodec() 已释放旧解码器");
-                } catch (Exception e) {
-                    Log.e(TAG, "configMediaCodec() 释放旧解码器失败: ", e);
-                    mediaCodec = null;
-                }
-                
-                // 清空帧队列，避免旧数据干扰
-                frameQueue.clear();
-                Log.i(TAG, "configMediaCodec() 已清空帧队列");
-                
-                // 重置播放时间
-                startTime = Long.MIN_VALUE;
-            } else {
-                Log.d(TAG, "configMediaCodec() SPS/PPS未变化，跳过重新配置");
-                return;
+            // 这里可以添加更精确的判断：比较新旧SPS/PPS是否相同
+            // 简单起见，只要有新的SPS/PPS就重新配置
+            Log.i(TAG, "configMediaCodec() 检测到新的SPS/PPS，准备重新配置解码器");
+            needReconfig = true;
+            
+            // 释放旧的解码器
+            try {
+                mediaCodec.stop();
+                mediaCodec.release();
+                mediaCodec = null;
+                Log.i(TAG, "configMediaCodec() 旧解码器已释放");
+            } catch (Exception e) {
+                Log.e(TAG, "configMediaCodec() 释放旧解码器失败: ", e);
+                mediaCodec = null;
             }
         }
-
-        // 保存当前的SPS和PPS
-        currentSps = sps.clone();
-        currentPps = pps.clone();
 
         final boolean software = false; // 是否使用软件解码器
         final String MIME = "video/avc";
@@ -431,8 +413,8 @@ public abstract class H264ActivityTcpBase extends AppCompatActivity {
         int[] dimensions = Utils.parseSps(sps);
         int width = dimensions[0];
         int height = dimensions[1];
-        String configType = needReconfig ? "重新配置" : "初始配置";
-        Log.i(TAG, "configMediaCodec() " + configType + " soft=" + software + " dimensions=" + width + "x" + height);
+        Log.i(TAG, "configMediaCodec() soft=" + software + " dimensions=" + width + "x" + height 
+                + " reconfig=" + needReconfig);
 
         // 创建并配置MediaFormat
         MediaFormat format = MediaFormat.createVideoFormat(MIME, width, height);
@@ -458,6 +440,12 @@ public abstract class H264ActivityTcpBase extends AppCompatActivity {
             submitFrame(currentFrame.toByteArray(), 0, MediaCodec.BUFFER_FLAG_CODEC_CONFIG);
         } catch (IOException e) {
             Log.e(TAG, "configMediaCodec() write config frame failed: ", e);
+        }
+        
+        // 如果是重新配置，可能需要重置播放时间
+        if (needReconfig) {
+            startTime = Long.MIN_VALUE;
+            Log.i(TAG, "configMediaCodec() 播放时间已重置");
         }
     }
 
