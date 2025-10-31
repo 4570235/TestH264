@@ -3,10 +3,13 @@ package com.handley.myapplication.demo;
 import android.media.MediaCodec;
 import android.media.MediaFormat;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
 import android.util.Log;
 import android.view.Surface;
 import android.view.View;
 import android.widget.Button;
+import android.widget.TextView;
 import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
 import com.handley.myapplication.R;
@@ -20,6 +23,7 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.ByteBuffer;
+import java.util.Locale;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
@@ -30,12 +34,21 @@ public abstract class H264ActivityTcpBase extends AppCompatActivity {
     protected static final String TAG = Utils.TAG + "H264ActivityTcpBase";
     private final BlockingQueue<MyFrame> frameQueue = new LinkedBlockingQueue<>(25); // 帧缓冲队列
     private Button videoBtn, audioBtn;
+    private TextView tvPacketStats, tvFrameStats, tvQueueStats;
     private MyServer myServer;
     private MyClient myClient;
     private MediaCodec mediaCodec;
     private long startTime = Long.MIN_VALUE; // 播放开始时间（毫秒）
     private Thread decodeThread;
     private volatile boolean decodeThreadRunning = false;
+    private Handler uiHandler;
+    
+    // 视频帧统计
+    private long totalFrames = 0;
+    private long iFrameCount = 0;
+    private long pFrameCount = 0;
+    private long lastFrameTime = 0;
+    private float currentFps = 0;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -43,12 +56,20 @@ public abstract class H264ActivityTcpBase extends AppCompatActivity {
         setContentView(R.layout.activity_main);
         videoBtn = findViewById(R.id.video_btn);
         audioBtn = findViewById(R.id.audio_btn);
+        tvPacketStats = findViewById(R.id.tv_packet_stats);
+        tvFrameStats = findViewById(R.id.tv_frame_stats);
+        tvQueueStats = findViewById(R.id.tv_queue_stats);
+        
         videoBtn.setVisibility(View.VISIBLE);
         audioBtn.setVisibility(View.GONE);
+        
+        uiHandler = new Handler(Looper.getMainLooper());
 
         initTcp();
 
         startDecodeThread();
+        
+        startQueueMonitor();
 
         Log.i(TAG, "onCreate()");
     }
@@ -58,12 +79,13 @@ public abstract class H264ActivityTcpBase extends AppCompatActivity {
 
         // 点击启动客户端发送文件
         videoBtn.setOnClickListener(v -> {
-            myClient = new MyClient(this, "dump.h264", port);
+            myClient = new MyClient(this, "received_packets_20251031_051814.raw", port);
             myClient.start();
             videoBtn.setEnabled(false);// 防止重复点击
         });
 
-        // 创建并启动服务器
+        // 创建并启动服务器，传入保存目录
+        String saveDirectory = getExternalFilesDir(null).getAbsolutePath();
         myServer = new MyServer((frame) -> {
             // 处理接收到的帧数据
 
@@ -86,8 +108,80 @@ public abstract class H264ActivityTcpBase extends AppCompatActivity {
             } catch (InterruptedException e) {
                 Log.e(TAG, "onFrameReceived() frameQueue.put() interrupted");
             }
-        }, port);
+        }, port, saveDirectory);
+        
+        // 设置数据包统计回调
+        myServer.setStatsCallback((packets, bytes, bytesPerSecond) -> {
+            updatePacketStats(packets, bytes, bytesPerSecond);
+        });
+        
         myServer.start();
+    }
+    
+    // 更新数据包统计信息
+    private void updatePacketStats(long packets, long bytes, float bytesPerSecond) {
+        uiHandler.post(() -> {
+            String stats = String.format(Locale.getDefault(),
+                    "数据包: %d个 | 总量: %.2f MB | 速率: %.2f KB/s",
+                    packets, bytes / 1024.0 / 1024.0, bytesPerSecond / 1024.0);
+            tvPacketStats.setText(stats);
+        });
+    }
+    
+    // 更新视频帧统计信息
+    private void updateFrameStats(boolean isKeyFrame) {
+        totalFrames++;
+        if (isKeyFrame) {
+            iFrameCount++;
+        } else {
+            pFrameCount++;
+        }
+        
+        // 计算帧率
+        long currentTime = System.currentTimeMillis();
+        if (lastFrameTime > 0) {
+            long timeDiff = currentTime - lastFrameTime;
+            if (timeDiff > 0) {
+                currentFps = currentFps * 0.9f + (1000.0f / timeDiff) * 0.1f; // 平滑处理
+            }
+        }
+        lastFrameTime = currentTime;
+        
+        uiHandler.post(() -> {
+            String stats = String.format(Locale.getDefault(),
+                    "视频帧: %d个 (I:%d P:%d) | 帧率: %.1f fps",
+                    totalFrames, iFrameCount, pFrameCount, currentFps);
+            tvFrameStats.setText(stats);
+        });
+    }
+    
+    // 启动队列监控线程
+    private void startQueueMonitor() {
+        new Thread(() -> {
+            while (!Thread.interrupted()) {
+                try {
+                    Thread.sleep(100); // 每100ms更新一次
+                    int queueSize = frameQueue.size();
+                    uiHandler.post(() -> {
+                        String stats = String.format(Locale.getDefault(),
+                                "队列状态: %d/25 (%.0f%%)",
+                                queueSize, queueSize * 100.0 / 25);
+                        tvQueueStats.setText(stats);
+                        
+                        // 根据队列状态改变颜色
+                        if (queueSize > 20) {
+                            tvQueueStats.setTextColor(0xFFFF0000); // 红色：队列快满
+                        } else if (queueSize > 15) {
+                            tvQueueStats.setTextColor(0xFFFFFF00); // 黄色：队列较满
+                        } else {
+                            tvQueueStats.setTextColor(0xFF00FF00); // 绿色：正常
+                        }
+                    });
+                } catch (InterruptedException e) {
+                    break;
+                }
+            }
+        }, "QueueMonitor").start();
     }
 
     // 启动解码播放线程
@@ -153,12 +247,14 @@ public abstract class H264ActivityTcpBase extends AppCompatActivity {
                         currentFrame.write(new byte[]{0, 0, 0, 1});
                         currentFrame.write(nal);
                         submitFrame(currentFrame.toByteArray(), pts, MediaCodec.BUFFER_FLAG_KEY_FRAME);
+                        updateFrameStats(true); // I帧
                         currentFrame.reset();
                         break;
                     case 1: // 非IDR Slice
                         currentFrame.write(new byte[]{0, 0, 0, 1});
                         currentFrame.write(nal);
                         submitFrame(currentFrame.toByteArray(), pts, 0);
+                        updateFrameStats(false); // P帧
                         currentFrame.reset();
                         break;
                     default:
@@ -283,11 +379,44 @@ public abstract class H264ActivityTcpBase extends AppCompatActivity {
         }
     }
 
+    private byte[] currentSps = null;
+    private byte[] currentPps = null;
+
     private void configMediaCodec(@NonNull byte[] sps, @NonNull byte[] pps) {
+        // 检查是否需要重新配置
+        boolean needReconfig = false;
         if (mediaCodec != null) {
-            Log.e(TAG, "configMediaCodec() 不支持重新配置");
-            return;
+            // 比较新旧SPS和PPS是否相同
+            if (!java.util.Arrays.equals(currentSps, sps) || !java.util.Arrays.equals(currentPps, pps)) {
+                Log.i(TAG, "configMediaCodec() 检测到SPS/PPS变化，需要重新配置解码器");
+                needReconfig = true;
+                
+                // 释放旧的解码器
+                try {
+                    mediaCodec.stop();
+                    mediaCodec.release();
+                    mediaCodec = null;
+                    Log.i(TAG, "configMediaCodec() 已释放旧解码器");
+                } catch (Exception e) {
+                    Log.e(TAG, "configMediaCodec() 释放旧解码器失败: ", e);
+                    mediaCodec = null;
+                }
+                
+                // 清空帧队列，避免旧数据干扰
+                frameQueue.clear();
+                Log.i(TAG, "configMediaCodec() 已清空帧队列");
+                
+                // 重置播放时间
+                startTime = Long.MIN_VALUE;
+            } else {
+                Log.d(TAG, "configMediaCodec() SPS/PPS未变化，跳过重新配置");
+                return;
+            }
         }
+
+        // 保存当前的SPS和PPS
+        currentSps = sps.clone();
+        currentPps = pps.clone();
 
         final boolean software = false; // 是否使用软件解码器
         final String MIME = "video/avc";
@@ -295,13 +424,15 @@ public abstract class H264ActivityTcpBase extends AppCompatActivity {
             mediaCodec = software ? Utils.findSoftwareDecoder(MIME) : MediaCodec.createDecoderByType(MIME);
         } catch (IOException | IllegalStateException e) {
             Log.e(TAG, "configMediaCodec() failed: ", e);
+            return;
         }
 
         // 从SPS中解析视频宽高
         int[] dimensions = Utils.parseSps(sps);
         int width = dimensions[0];
         int height = dimensions[1];
-        Log.i(TAG, "configMediaCodec() soft=" + software + " dimensions=" + width + "x" + height);
+        String configType = needReconfig ? "重新配置" : "初始配置";
+        Log.i(TAG, "configMediaCodec() " + configType + " soft=" + software + " dimensions=" + width + "x" + height);
 
         // 创建并配置MediaFormat
         MediaFormat format = MediaFormat.createVideoFormat(MIME, width, height);
@@ -311,8 +442,10 @@ public abstract class H264ActivityTcpBase extends AppCompatActivity {
         mediaCodec.configure(format, getSurface(width, height), null, 0);
         try {
             mediaCodec.start();
+            Log.i(TAG, "configMediaCodec() 解码器启动成功");
         } catch (IllegalStateException e) {
             Log.e(TAG, "configMediaCodec() start() failed: ", e);
+            return;
         }
 
         // 提交 sps pps 配置帧

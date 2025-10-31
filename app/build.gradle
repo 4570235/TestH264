@@ -16,6 +16,23 @@ android {
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    signingConfigs {
+        release {
+            // 路径根据你的实际存放位置修改
+            storeFile file('../itrelease.keystore')
+            storePassword '111111'
+            keyAlias 'release_key'
+            keyPassword '111111'
+        }
+    }
+    buildTypes {
+        release {
+            signingConfig signingConfigs.release
+            minifyEnabled false // 可选，是否进行混淆
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+        }
+    }
+
     buildTypes {
         release {
             minifyEnabled false
