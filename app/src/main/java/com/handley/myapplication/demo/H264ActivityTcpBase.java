@@ -284,9 +284,24 @@ public abstract class H264ActivityTcpBase extends AppCompatActivity {
     }
 
     private void configMediaCodec(@NonNull byte[] sps, @NonNull byte[] pps) {
+        // 检查是否需要重新配置
+        boolean needReconfig = false;
         if (mediaCodec != null) {
-            Log.e(TAG, "configMediaCodec() 不支持重新配置");
-            return;
+            // 这里可以添加更精确的判断：比较新旧SPS/PPS是否相同
+            // 简单起见，只要有新的SPS/PPS就重新配置
+            Log.i(TAG, "configMediaCodec() 检测到新的SPS/PPS，准备重新配置解码器");
+            needReconfig = true;
+
+            // 释放旧的解码器
+            try {
+                mediaCodec.stop();
+                mediaCodec.release();
+                mediaCodec = null;
+                Log.i(TAG, "configMediaCodec() 旧解码器已释放");
+            } catch (Exception e) {
+                Log.e(TAG, "configMediaCodec() 释放旧解码器失败: ", e);
+                mediaCodec = null;
+            }
         }
 
         final boolean software = false; // 是否使用软件解码器
@@ -295,13 +310,15 @@ public abstract class H264ActivityTcpBase extends AppCompatActivity {
             mediaCodec = software ? Utils.findSoftwareDecoder(MIME) : MediaCodec.createDecoderByType(MIME);
         } catch (IOException | IllegalStateException e) {
             Log.e(TAG, "configMediaCodec() failed: ", e);
+            return;
         }
 
         // 从SPS中解析视频宽高
         int[] dimensions = Utils.parseSps(sps);
         int width = dimensions[0];
         int height = dimensions[1];
-        Log.i(TAG, "configMediaCodec() soft=" + software + " dimensions=" + width + "x" + height);
+        Log.i(TAG, "configMediaCodec() soft=" + software + " dimensions=" + width + "x" + height
+                + " reconfig=" + needReconfig);
 
         // 创建并配置MediaFormat
         MediaFormat format = MediaFormat.createVideoFormat(MIME, width, height);
@@ -311,8 +328,10 @@ public abstract class H264ActivityTcpBase extends AppCompatActivity {
         mediaCodec.configure(format, getSurface(width, height), null, 0);
         try {
             mediaCodec.start();
+            Log.i(TAG, "configMediaCodec() 解码器启动成功");
         } catch (IllegalStateException e) {
             Log.e(TAG, "configMediaCodec() start() failed: ", e);
+            return;
         }
 
         // 提交 sps pps 配置帧
@@ -325,6 +344,12 @@ public abstract class H264ActivityTcpBase extends AppCompatActivity {
             submitFrame(currentFrame.toByteArray(), 0, MediaCodec.BUFFER_FLAG_CODEC_CONFIG);
         } catch (IOException e) {
             Log.e(TAG, "configMediaCodec() write config frame failed: ", e);
+        }
+
+        // 如果是重新配置，可能需要重置播放时间
+        if (needReconfig) {
+            startTime = Long.MIN_VALUE;
+            Log.i(TAG, "configMediaCodec() 播放时间已重置");
         }
     }
 
