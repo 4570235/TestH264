@@ -1,6 +1,7 @@
 package com.handley.myapplication.tcp;
 
 
+import android.transition.Slide;
 import android.util.Log;
 import androidx.annotation.NonNull;
 import com.handley.myapplication.common.MediaMessageHeader;
@@ -45,7 +46,7 @@ public class MyServer {
                             InputStream inputStream = clientSocket.getInputStream();
                             BufferedInputStream bis = new BufferedInputStream(inputStream)) {
 
-                        Log.i(TAG, "start() Client connected: " + clientSocket.getInetAddress());
+                        Log.i(TAG, "start() Client connected: " + clientSocket.getInetAddress() + " ReceiveBufferSize=" + clientSocket.getReceiveBufferSize());
                         processClientData(bis);
                         Log.i(TAG, "start() finish Client data: " + clientSocket.getInetAddress());
                     } catch (IOException e) {
@@ -108,13 +109,22 @@ public class MyServer {
                 break;
             }
 
+            if(testSleep) {
+                testSleep = false;
+                try {
+                    Thread.sleep(1000 * 60);
+                } catch (InterruptedException e) {
+                    throw new RuntimeException(e);
+                }
+            }
+
             // 4. 回调帧数据
             Log.d(TAG, "Received frame: type=" + header.type + ", length=" + header.dataLen + ", timestamp="
                     + header.timestamp);
             myFrameCallback.onFrameReceived(new MyFrame(header, frameData));
         }
     }
-
+boolean testSleep = true;
     public void stop() {
         isRunning = false;
 
