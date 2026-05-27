@@ -22,7 +22,7 @@ import java.nio.ByteBuffer;
 
 public class Utils {
 
-    public static final String TAG = "TestP";
+    public static final String TAG = "TestP_";
 
     // 提取SPS和PPS, 返回SPS和PPS的字节数组，不带起始码 0x00 0x00 0x00 0x01
     public static byte[][] extractSpsPps(File file) throws IOException {

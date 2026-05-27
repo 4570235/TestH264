@@ -16,6 +16,7 @@ import com.handley.myapplication.common.MyFrame;
 import com.handley.myapplication.common.Utils;
 import com.handley.myapplication.tcp.MyClient;
 import com.handley.myapplication.tcp.MyServer;
+import java.io.File;
 import java.nio.ByteBuffer;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
@@ -80,7 +81,8 @@ public class OpusActivityTcp extends AppCompatActivity {
 
         // 创建并启动客户端
         audioBtn.setOnClickListener(v -> {
-            myClient = new MyClient(this, "fake-dump.opus", port);
+            File dumpFile = new File(getExternalFilesDir(null), "fake-dump.opus");
+            myClient = new MyClient(OpusActivityTcp.this, dumpFile, port);
             myClient.start();
             audioBtn.setEnabled(false);// 防止重复点击
         });
@@ -110,7 +112,7 @@ public class OpusActivityTcp extends AppCompatActivity {
             if (!offer) {
                 Log.w(TAG, "frameQueue.offer() failed");
             }
-        }, port);
+        }, port, getExternalFilesDir(null));
         myServer.start();
     }
 

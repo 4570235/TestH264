@@ -3,20 +3,29 @@ package com.handley.myapplication.demo;
 import android.media.MediaCodec;
 import android.media.MediaFormat;
 import android.os.Bundle;
+import android.os.Looper;
 import android.util.Log;
 import android.view.Surface;
 import android.view.View;
+import android.app.AlertDialog;
+import android.content.Intent;
+import android.net.Uri;
+import android.provider.DocumentsContract;
 import android.widget.Button;
+import android.widget.Toast;
 import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
 import com.handley.myapplication.R;
 import com.handley.myapplication.common.MediaMessageHeader;
 import com.handley.myapplication.common.MyFrame;
+import com.handley.myapplication.common.MyFrameCallback;
 import com.handley.myapplication.common.Utils;
 import com.handley.myapplication.tcp.MyClient;
 import com.handley.myapplication.tcp.MyServer;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
+import java.io.File;
+import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.ByteBuffer;
@@ -29,13 +38,18 @@ public abstract class H264ActivityTcpBase extends AppCompatActivity {
 
     protected static final String TAG = Utils.TAG + "H264ActivityTcpBase";
     private final BlockingQueue<MyFrame> frameQueue = new LinkedBlockingQueue<>(25); // 帧缓冲队列
-    private Button videoBtn, audioBtn;
+    private Button videoBtn, audioBtn, exitBtn, deleteBtn;
     private MyServer myServer;
     private MyClient myClient;
     private MediaCodec mediaCodec;
     private long startTime = Long.MIN_VALUE; // 播放开始时间（毫秒）
     private Thread decodeThread;
     private volatile boolean decodeThreadRunning = false;
+    private static final int EXTERNAL_PORT = 33334;
+    private static final int REPLAY_PORT = 33335;
+    private static final int REQUEST_CODE_PICK_FILE = 1001;
+    private MyServer replayServer;
+    private MyClient replayClient;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -43,8 +57,33 @@ public abstract class H264ActivityTcpBase extends AppCompatActivity {
         setContentView(R.layout.activity_main);
         videoBtn = findViewById(R.id.video_btn);
         audioBtn = findViewById(R.id.audio_btn);
+        exitBtn = findViewById(R.id.exit_btn);
+        deleteBtn = findViewById(R.id.delete_btn);
         videoBtn.setVisibility(View.VISIBLE);
         audioBtn.setVisibility(View.GONE);
+
+        exitBtn.setOnClickListener(v -> finish());
+
+        deleteBtn.setOnClickListener(v -> {
+            File dumpDir = new File(getExternalFilesDir(null), "dump");
+            int deletedCount = 0;
+            if (dumpDir.exists() && dumpDir.isDirectory()) {
+                File[] files = dumpDir.listFiles();
+                if (files != null) {
+                    for (File file : files) {
+                        if (file.delete()) {
+                            deletedCount++;
+                            Log.i(TAG, "deleteBtn: deleted dump file: " + file.getAbsolutePath());
+                        } else {
+                            Log.e(TAG, "deleteBtn: failed to delete: " + file.getAbsolutePath());
+                        }
+                    }
+                }
+            }
+            Toast.makeText(H264ActivityTcpBase.this, "已删除 " + deletedCount + " 个dump文件", Toast.LENGTH_SHORT).show();
+            // 3秒后退出
+            new android.os.Handler(Looper.getMainLooper()).postDelayed(() -> finish(), 100);
+        });
 
         initTcp();
 
@@ -54,40 +93,124 @@ public abstract class H264ActivityTcpBase extends AppCompatActivity {
     }
 
     private void initTcp() {
-        final int port = 23334;
+        final int port = EXTERNAL_PORT;
 
-        // 点击启动客户端发送文件
+        // 点击启动客户端发送文件（回放上次收到的数据）
         videoBtn.setOnClickListener(v -> {
-            myClient = new MyClient(this, "dump.h264", port);
-            myClient.start();
-            videoBtn.setEnabled(false);// 防止重复点击
+            // 停止外部服务器和释放解码器，因为跳转回来后会重新初始化
+            Log.i(TAG, "videoBtn: stopping server and releasing decoder before file picker");
+            if (myServer != null) {
+                myServer.stop();
+                myServer = null;
+            }
+            // 先停止解码线程，再释放 mediaCodec，避免线程在 mediaCodec 释放后还在运行
+            decodeThreadRunning = false;
+            if (decodeThread != null) {
+                decodeThread.interrupt();
+                try {
+                    decodeThread.join(500);
+                } catch (InterruptedException e) {
+                    Log.w(TAG, "videoBtn: wait decode thread interrupted");
+                }
+                decodeThread = null;
+            }
+            releaseMediaCodec();
+            frameQueue.clear();
+
+            // 使用自定义文件浏览器
+            Intent intent = new Intent(H264ActivityTcpBase.this, FileBrowserActivity.class);
+            startActivityForResult(intent, REQUEST_CODE_PICK_FILE);
         });
 
-        // 创建并启动服务器
-        myServer = new MyServer((frame) -> {
-            // 处理接收到的帧数据
+        // 创建并启动外部服务器
+        Log.i(TAG, "initTcp: starting external server port=" + port);
+        myServer = new MyServer(createFrameCallback(), port, getExternalFilesDir(null));
+        myServer.start();
+    }
 
+    private File findLatestDumpFile(int port) {
+        File dumpBaseDir = getExternalFilesDir(null);
+        if (dumpBaseDir == null) {
+            Log.e(TAG, "findLatestDumpFile() dumpBaseDir is null");
+            return null;
+        }
+        File dumpDir = new File(dumpBaseDir, "dump");
+        if (!dumpDir.exists() || !dumpDir.isDirectory()) {
+            Log.w(TAG, "findLatestDumpFile() dumpDir not found: " + dumpDir.getAbsolutePath());
+            return null;
+        }
+        File dumpFile = new File(dumpDir, "dump_port" + port + ".h264");
+        if (!dumpFile.exists() || dumpFile.length() == 0) {
+            Log.w(TAG, "findLatestDumpFile() dump file not found or empty: " + dumpFile.getAbsolutePath());
+            return null;
+        }
+        Log.i(TAG, "findLatestDumpFile() found dump file: " + dumpFile.getAbsolutePath());
+        return dumpFile;
+    }
+
+    private void startReplay(File dumpFile) {
+        if (dumpFile == null || !dumpFile.exists() || dumpFile.length() == 0) {
+            Toast.makeText(H264ActivityTcpBase.this, "没有找到有效dump文件，请先接收数据", Toast.LENGTH_SHORT).show();
+            Log.e(TAG, "startReplay: no valid dump file for replay, path=" + (dumpFile != null ? dumpFile.getAbsolutePath() : "null") + " length=" + (dumpFile != null ? dumpFile.length() : -1));
+            return;
+        }
+        Toast.makeText(H264ActivityTcpBase.this, "回放文件: " + dumpFile.getAbsolutePath(), Toast.LENGTH_SHORT).show();
+        // 停止外部服务器，启动回放服务器（回放时不dump）
+        Log.i(TAG, "startReplay: stopping external server, starting replay server port=" + REPLAY_PORT + ", file=" + dumpFile.getAbsolutePath());
+        if (myServer != null) {
+            myServer.stop();
+            myServer = null;
+        }
+        replayServer = new MyServer(createFrameCallback(), REPLAY_PORT, null);
+        replayServer.start();
+        // 等待回放服务器真正启动（accept 准备好），避免 client 连接时被拒绝
+        try { Thread.sleep(200); } catch (InterruptedException ignored) {}
+        
+        // 重新启动解码线程
+        startDecodeThread();
+        
+        // 启动回放客户端，发完自动恢复
+        replayClient = new MyClient(H264ActivityTcpBase.this, dumpFile, REPLAY_PORT);
+        replayClient.setOnFinishListener(() -> {
+            Log.i(TAG, "startReplay: client finished file=" + (replayClient != null ? replayClient.getDumpFilePath() : "null") + ", stopping replay server");
+        });
+        replayClient.start();
+        videoBtn.setEnabled(false);
+    }
+
+    private String formatFileSize(long size) {
+        if (size < 1024) {
+            return size + " B";
+        } else if (size < 1024 * 1024) {
+            return String.format("%.1f KB", size / 1024.0);
+        } else if (size < 1024 * 1024 * 1024) {
+            return String.format("%.1f MB", size / (1024.0 * 1024));
+        } else {
+            return String.format("%.1f GB", size / (1024.0 * 1024 * 1024));
+        }
+    }
+
+    private MyFrameCallback createFrameCallback() {
+        return (frame) -> {
+            // 处理接收到的帧数据
             if (frame.header.type != MediaMessageHeader.H264) {
-                Log.e(TAG, "onFrameReceived() frame type not H264");
+                Log.e(TAG, "onFrameReceived: unexpected frame type=" + frame.header.type);
                 return;
             }
             // 注意：收到的 frame.header.timestamp 单位是毫秒
-
             if (startTime == Long.MIN_VALUE) {
                 long currentTime = System.nanoTime() / 1000000;
                 startTime = currentTime - frame.header.timestamp;
-                Log.i(TAG, "onFrameReceived() init currentTime=" + currentTime + " pts=" + frame.header.timestamp
+                Log.i(TAG, "onFrameReceived: first frame currentTime=" + currentTime + " pts=" + frame.header.timestamp
                         + " startTime=" + startTime);
             }
-
             // 将帧存入队列，视频帧不能丢失，否则后续解不出来。要丢就得一直丢到下一个i帧。
             try {
                 frameQueue.put(frame);
             } catch (InterruptedException e) {
-                Log.e(TAG, "onFrameReceived() frameQueue.put() interrupted");
+                Log.e(TAG, "onFrameReceived: frameQueue.put() interrupted: " + e.getMessage() + " cause:" + e.getCause());
             }
-        }, port);
-        myServer.start();
+        };
     }
 
     // 启动解码播放线程
@@ -376,8 +499,7 @@ public abstract class H264ActivityTcpBase extends AppCompatActivity {
     @Override
     protected void onStop() {
         super.onStop();
-        release();
-        finish();//此类只为了演示解码渲染，不考虑 ui 交互。
+        // 不再在此处 finish，避免 Activity 进入后台时被销毁。exitBtn 点击时才会 finish()。
     }
 
     @Override
@@ -386,11 +508,53 @@ public abstract class H264ActivityTcpBase extends AppCompatActivity {
         release();
     }
 
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode == REQUEST_CODE_PICK_FILE && resultCode == RESULT_OK && data != null) {
+            String filePath = data.getStringExtra(FileBrowserActivity.EXTRA_SELECTED_FILE);
+            if (filePath != null) {
+                File dumpFile = new File(filePath);
+                if (dumpFile.exists()) {
+                    startReplay(dumpFile);
+                } else {
+                    Toast.makeText(this, "文件不存在: " + filePath, Toast.LENGTH_SHORT).show();
+                }
+            }
+        }
+    }
+
+    private File copyUriToTempFile(Uri uri) throws IOException {
+        InputStream inputStream = getContentResolver().openInputStream(uri);
+        if (inputStream == null) {
+            return null;
+        }
+        File tempFile = new File(getCacheDir(), "temp_replay.h264");
+        try (FileOutputStream outputStream = new FileOutputStream(tempFile)) {
+            byte[] buffer = new byte[4096];
+            int bytesRead;
+            while ((bytesRead = inputStream.read(buffer)) != -1) {
+                outputStream.write(buffer, 0, bytesRead);
+            }
+        } finally {
+            inputStream.close();
+        }
+        return tempFile;
+    }
+
     protected synchronized void release() {
         // 停止 tcp
         if (myServer != null) {
             myServer.stop();
             myServer = null;
+        }
+        if (replayServer != null) {
+            replayServer.stop();
+            replayServer = null;
+        }
+        if (replayClient != null) {
+            replayClient.stop();
+            replayClient = null;
         }
         if (myClient != null) {
             myClient.stop();
@@ -399,8 +563,16 @@ public abstract class H264ActivityTcpBase extends AppCompatActivity {
 
         // 释放解码器
         if (mediaCodec != null) {
-            mediaCodec.stop();
-            mediaCodec.release();
+            try {
+                mediaCodec.stop();
+            } catch (IllegalStateException e) {
+                Log.w(TAG, "release: mediaCodec.stop() ignored: " + e.getMessage());
+            }
+            try {
+                mediaCodec.release();
+            } catch (IllegalStateException e) {
+                Log.w(TAG, "release: mediaCodec.release() ignored: " + e.getMessage());
+            }
             mediaCodec = null;
         }
 
@@ -415,5 +587,23 @@ public abstract class H264ActivityTcpBase extends AppCompatActivity {
         }
 
         Log.i(TAG, "release()");
+    }
+
+    private void releaseMediaCodec() {
+        if (mediaCodec != null) {
+            try {
+                mediaCodec.stop();
+            } catch (IllegalStateException e) {
+                Log.w(TAG, "releaseMediaCodec: mediaCodec.stop() ignored: " + e.getMessage());
+            }
+            try {
+                mediaCodec.release();
+            } catch (IllegalStateException e) {
+                Log.w(TAG, "releaseMediaCodec: mediaCodec.release() ignored: " + e.getMessage());
+            }
+            mediaCodec = null;
+            startTime = Long.MIN_VALUE;
+            Log.i(TAG, "releaseMediaCodec: mediaCodec released");
+        }
     }
 }

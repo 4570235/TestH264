@@ -13,16 +13,29 @@ import java.net.Socket;
 
 public class MyClient {
 
+    public interface OnFinishListener {
+        void onFinish();
+    }
+
     private static final String TAG = Utils.TAG + "MyClient";
     private final Context context;
-    private final String fileName;
+    private final File dumpFile;
     private final int port;
     private Thread clientThread;
+    private OnFinishListener onFinishListener;
 
-    public MyClient(Context context, String fileName, int port) {
+    public MyClient(Context context, File dumpFile, int port) {
         this.context = context;
-        this.fileName = fileName;
+        this.dumpFile = dumpFile;
         this.port = port;
+    }
+
+    public String getDumpFilePath() {
+        return dumpFile != null ? dumpFile.getAbsolutePath() : null;
+    }
+
+    public void setOnFinishListener(OnFinishListener listener) {
+        this.onFinishListener = listener;
     }
 
     public void start() {
@@ -39,9 +52,8 @@ public class MyClient {
 
             try {
                 // 1. 获取dump文件路径
-                File dumpFile = AssetsFileCopier.copyAssetToExternalFilesDir(this.context, this.fileName);
-                if (!dumpFile.exists()) {
-                    Log.e(TAG, "Dump file not found: " + dumpFile.getAbsolutePath());
+                if (!this.dumpFile.exists()) {
+                    Log.e(TAG, "Dump file not found: " + this.dumpFile.getAbsolutePath());
                     return;
                 }
 
@@ -56,10 +68,14 @@ public class MyClient {
                 byte[] buffer = new byte[1024 * 100];
                 int bytesRead;
 
+                long totalBytes = 0;
                 while ((bytesRead = bis.read(buffer)) != -1) {
                     outputStream.write(buffer, 0, bytesRead);
                     outputStream.flush();
-                    Log.v(TAG, "write: " + bytesRead);
+                    totalBytes += bytesRead;
+                    if (totalBytes % (10 * 1024 * 1024) < bytesRead) { // 每1MB打印一次
+                        Log.i(TAG, "write: " + (totalBytes / 1024 / 1024) + "MB");
+                    }
                     Thread.sleep(10);//一次发 100k 数据，sleep 10ms，每秒最多发 10M 数据。
                 }
 
@@ -83,6 +99,10 @@ public class MyClient {
                     }
                 } catch (IOException e) {
                     Log.e(TAG, "Error closing resources: " + e.getMessage());
+                }
+                // 5. 通知完成
+                if (onFinishListener != null) {
+                    onFinishListener.onFinish();
                 }
             }
         });
